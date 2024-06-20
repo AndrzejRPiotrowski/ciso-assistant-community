@@ -25,12 +25,13 @@ jobs:
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
 
-    - name: downcase REPO
+    - name: Downcase REPO
       run: |
-          echo "REPO=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
-    - name: use REPO
-      run: | 
-          echo "The value of REPO is: ${REPO}"
+        echo "REPO=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+
+    - name: Use REPO
+      run: |
+        echo "The value of REPO is: ${REPO}"
 
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
@@ -38,14 +39,14 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: set lower case owner name
-    run: 
-        echo "OWNER_LC=${OWNER,,}" >> ${GITHUB_ENV}
-    env:
-        OWNER: '${{ github.repository_owner }}'
 
-    - name: Get version and Create .meta file
+    - name: Set Lower Case Owner Name
+      run: |
+        echo "OWNER_LC=${OWNER,,}" >> ${GITHUB_ENV}
+      env:
+        OWNER: ${{ github.repository_owner }}
+
+    - name: Get Version and Create .meta File
       run: |
         echo "VERSION=$(git describe --tags --always)" >> $GITHUB_ENV
         echo "BUILD=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
@@ -56,6 +57,8 @@ jobs:
         cp .meta ./backend/
         cp .meta ./backend/ciso_assistant/
 
+    - name: List Backend Directory Contents
+      run: ls -la ./backend
 
     - name: Build and Push Backend Docker Image
       uses: docker/build-push-action@v5
@@ -67,6 +70,9 @@ jobs:
           ghcr.io/${{ github.repository }}/backend:${{ env.VERSION }}
           ghcr.io/${{ github.repository }}/backend:latest
         platforms: linux/amd64,linux/arm64,linux/arm64/v8
+
+    - name: List Frontend Directory Contents
+      run: ls -la ./frontend
 
     - name: Build and Push Frontend Docker Image
       uses: docker/build-push-action@v5
