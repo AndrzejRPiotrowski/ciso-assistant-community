@@ -12,7 +12,10 @@
 
 	export let form: SuperValidated<AnyZodObject>;
 	export let model: ModelInfo;
-	export let formAction = 'create';
+	export let riskAssessmentDuplication = false;
+	export let invalidateAll = true; // set to false to keep form data using muliple forms on a page
+	export let formAction = '?/create';
+	export let context = 'create';
 	let closeModal = true;
 	export let suggestions: { [key: string]: any } = {};
 
@@ -42,6 +45,18 @@
 				<i class="fa-solid fa-xmark" />
 			</div>
 		</div>
-		<ModelForm {form} {suggestions} {parent} {model} {closeModal} action="?/{formAction}" {debug} />
+		<ModelForm
+			{form}
+			{suggestions}
+			{parent}
+			{invalidateAll}
+			{model}
+			{closeModal}
+			{context}
+			{riskAssessmentDuplication}
+			caching={true}
+			action={formAction}
+			{debug}
+		/>
 	</div>
 {/if}

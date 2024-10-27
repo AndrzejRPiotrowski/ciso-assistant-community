@@ -1,3 +1,4 @@
+import importlib
 from typing import Any
 from ciso_assistant.settings import EMAIL_HOST, EMAIL_HOST_RESCUE
 
@@ -16,6 +17,40 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 User = get_user_model()
+
+
+class SerializerFactory:
+    """Factory to get a serializer class from a list of modules.
+
+    Attributes:
+    modules (list): List of module names to search for the serializer.
+    """
+
+    def __init__(self, *modules: str):
+        self.modules = list(reversed(modules))  # Reverse to prioritize later modules
+
+    def get_serializer(self, base_name: str, action: str):
+        if action in ["list", "retrieve"]:
+            serializer_name = f"{base_name}ReadSerializer"
+        elif action in ["create", "update", "partial_update"]:
+            serializer_name = f"{base_name}WriteSerializer"
+        else:
+            return None
+
+        return self._get_serializer_class(serializer_name)
+
+    def _get_serializer_class(self, serializer_name: str):
+        for module_name in self.modules:
+            try:
+                serializer_module = importlib.import_module(module_name)
+                serializer_class = getattr(serializer_module, serializer_name)
+                return serializer_class
+            except (ModuleNotFoundError, AttributeError):
+                continue
+
+        raise ValueError(
+            f"Serializer {serializer_name} not found in any provided modules"
+        )
 
 
 class BaseModelSerializer(serializers.ModelSerializer):
@@ -49,12 +84,26 @@ class BaseModelSerializer(serializers.ModelSerializer):
         try:
             object_created = super().create(validated_data)
             return object_created
-        except Exception as e:
+        except ValidationError as e:
             logger.error(e)
             raise serializers.ValidationError(e.args[0])
 
     class Meta:
         model: models.Model
+
+
+class ReferentialSerializer(BaseModelSerializer):
+    name = serializers.CharField(source="get_name_translated")
+    description = serializers.CharField(
+        source="get_description_translated", allow_blank=True, allow_null=True
+    )
+    annotation = serializers.CharField(
+        source="get_annotation_translated", allow_blank=True, allow_null=True
+    )
+
+    class Meta:
+        model: ReferentialObjectMixin
+        exclude = ["translations"]
 
 
 class AssessmentReadSerializer(BaseModelSerializer):
@@ -66,16 +115,31 @@ class AssessmentReadSerializer(BaseModelSerializer):
 # Risk Assessment
 
 
-class RiskMatrixReadSerializer(BaseModelSerializer):
+class RiskMatrixReadSerializer(ReferentialSerializer):
     folder = FieldsRelatedField()
+    json_definition = serializers.JSONField(source="get_json_translated")
 
     class Meta:
         model = RiskMatrix
-        fields = "__all__"
+        exclude = ["translations"]
 
 
 class RiskMatrixWriteSerializer(RiskMatrixReadSerializer):
     pass
+
+
+class VulnerabilityReadSerializer(BaseModelSerializer):
+    folder = FieldsRelatedField()
+
+    class Meta:
+        model = Vulnerability
+        exclude = ["created_at", "updated_at", "is_published"]
+
+
+class VulnerabilityWriteSerializer(BaseModelSerializer):
+    class Meta:
+        model = Vulnerability
+        exclude = ["created_at", "updated_at", "is_published"]
 
 
 class RiskAcceptanceWriteSerializer(BaseModelSerializer):
@@ -99,9 +163,8 @@ class RiskAcceptanceWriteSerializer(BaseModelSerializer):
 
 class RiskAcceptanceReadSerializer(BaseModelSerializer):
     folder = FieldsRelatedField()
-    approver = FieldsRelatedField()
     risk_scenarios = FieldsRelatedField(many=True)
-
+    approver = FieldsRelatedField(["id", "first_name", "last_name"])
     state = serializers.CharField(source="get_state_display")
 
     class Meta:
@@ -130,7 +193,16 @@ class RiskAssessmentWriteSerializer(BaseModelSerializer):
         exclude = ["created_at", "updated_at"]
 
 
+class RiskAssessmentDuplicateSerializer(BaseModelSerializer):
+    class Meta:
+        model = RiskAssessment
+        fields = ["name", "version", "project", "description"]
+
+
 class RiskAssessmentReadSerializer(AssessmentReadSerializer):
+    str = serializers.CharField(source="__str__")
+    project = FieldsRelatedField(["id", "folder"])
+    folder = FieldsRelatedField()
     risk_scenarios = FieldsRelatedField(many=True)
     risk_scenarios_count = serializers.IntegerField(source="risk_scenarios.count")
     risk_matrix = FieldsRelatedField()
@@ -156,12 +228,16 @@ class AssetReadSerializer(AssetWriteSerializer):
 class ReferenceControlWriteSerializer(BaseModelSerializer):
     class Meta:
         model = ReferenceControl
-        fields = "__all__"
+        exclude = ["translations"]
 
 
-class ReferenceControlReadSerializer(ReferenceControlWriteSerializer):
+class ReferenceControlReadSerializer(ReferentialSerializer):
     folder = FieldsRelatedField()
-    library = FieldsRelatedField(["name", "urn"])
+    library = FieldsRelatedField(["name", "id"])
+
+    class Meta:
+        model = ReferenceControl
+        exclude = ["translations"]
 
 
 """class LibraryReadSerializer(BaseModelSerializer):
@@ -180,18 +256,18 @@ class LibraryWriteSerializer(BaseModelSerializer):
 class ThreatWriteSerializer(BaseModelSerializer):
     class Meta:
         model = Threat
-        fields = "__all__"
+        exclude = ["translations"]
 
     # ["id", "folder", "ref_id", "name", "description", "provider"] # TODO: check why not all?
 
 
-class ThreatReadSerializer(BaseModelSerializer):
+class ThreatReadSerializer(ReferentialSerializer):
     folder = FieldsRelatedField()
-    library = FieldsRelatedField(["name", "urn"])
+    library = FieldsRelatedField(["name", "id"])
 
     class Meta:
         model = Threat
-        fields = "__all__"
+        exclude = ["translations"]
 
 
 class RiskScenarioWriteSerializer(BaseModelSerializer):
@@ -205,7 +281,7 @@ class RiskScenarioWriteSerializer(BaseModelSerializer):
 
 
 class RiskScenarioReadSerializer(RiskScenarioWriteSerializer):
-    risk_assessment = FieldsRelatedField()
+    risk_assessment = FieldsRelatedField(["id", "name"])
     risk_matrix = FieldsRelatedField(source="risk_assessment.risk_matrix")
     project = FieldsRelatedField(
         source="risk_assessment.project", fields=["id", "name", "folder"]
@@ -214,19 +290,21 @@ class RiskScenarioReadSerializer(RiskScenarioWriteSerializer):
     threats = FieldsRelatedField(many=True)
     assets = FieldsRelatedField(many=True)
 
-    treatment = serializers.CharField(source="get_treatment_display")
+    treatment = serializers.CharField()
 
-    current_proba = serializers.CharField(source="get_current_proba.name")
-    current_impact = serializers.CharField(source="get_current_impact.name")
+    current_proba = serializers.JSONField(source="get_current_proba")
+    current_impact = serializers.JSONField(source="get_current_impact")
     current_level = serializers.JSONField(source="get_current_risk")
-    residual_proba = serializers.CharField(source="get_residual_proba.name")
-    residual_impact = serializers.CharField(source="get_residual_impact.name")
+    residual_proba = serializers.JSONField(source="get_residual_proba")
+    residual_impact = serializers.JSONField(source="get_residual_impact")
     residual_level = serializers.JSONField(source="get_residual_risk")
 
     strength_of_knowledge = serializers.JSONField(source="get_strength_of_knowledge")
 
     applied_controls = FieldsRelatedField(many=True)
     rid = serializers.CharField()
+
+    owner = FieldsRelatedField(many=True)
 
 
 class AppliedControlWriteSerializer(BaseModelSerializer):
@@ -242,11 +320,15 @@ class AppliedControlReadSerializer(AppliedControlWriteSerializer):
     category = serializers.CharField(
         source="get_category_display"
     )  # type : get_type_display
-    status = serializers.CharField(source="get_status_display")
+    csf_function = serializers.CharField(
+        source="get_csf_function_display"
+    )  # type : get_type_display
     evidences = FieldsRelatedField(many=True)
     effort = serializers.CharField(source="get_effort_display")
+    cost = serializers.FloatField()
 
     ranking_score = serializers.IntegerField(source="get_ranking_score")
+    owner = FieldsRelatedField(many=True)
 
 
 class PolicyWriteSerializer(AppliedControlWriteSerializer):
@@ -275,6 +357,7 @@ class UserReadSerializer(BaseModelSerializer):
             "date_joined",
             "user_groups",
             "is_sso",
+            "is_third_party",
         ]
 
 
@@ -289,6 +372,7 @@ class UserWriteSerializer(BaseModelSerializer):
             "is_active",
             "date_joined",
             "user_groups",
+            "is_third_party",
         ]
 
     def validate_email(self, email):
@@ -400,26 +484,27 @@ class FolderReadSerializer(BaseModelSerializer):
 
     class Meta:
         model = Folder
-        exclude = []
+        fields = "__all__"
 
 
 # Compliance Assessment
 
 
-class FrameworkReadSerializer(BaseModelSerializer):
+class FrameworkReadSerializer(ReferentialSerializer):
     folder = FieldsRelatedField()
-    library = FieldsRelatedField(["name", "urn"])
+    library = FieldsRelatedField(["name", "id"])
+    reference_controls = FieldsRelatedField(many=True)
 
     class Meta:
         model = Framework
-        fields = "__all__"
+        exclude = ["translations"]
 
 
 class FrameworkWriteSerializer(FrameworkReadSerializer):
     pass
 
 
-class RequirementNodeReadSerializer(BaseModelSerializer):
+class RequirementNodeReadSerializer(ReferentialSerializer):
     reference_controls = FieldsRelatedField(many=True)
     threats = FieldsRelatedField(many=True)
     display_short = serializers.CharField()
@@ -427,7 +512,7 @@ class RequirementNodeReadSerializer(BaseModelSerializer):
 
     class Meta:
         model = RequirementNode
-        fields = "__all__"
+        exclude = ["translations"]
 
 
 class RequirementNodeWriteSerializer(RequirementNodeReadSerializer):
@@ -436,6 +521,7 @@ class RequirementNodeWriteSerializer(RequirementNodeReadSerializer):
 
 class EvidenceReadSerializer(BaseModelSerializer):
     attachment = serializers.CharField(source="filename")
+    size = serializers.CharField(source="get_size")
     folder = FieldsRelatedField()
     applied_controls = FieldsRelatedField(many=True)
     requirement_assessments = FieldsRelatedField(many=True)
@@ -467,8 +553,17 @@ class AttachmentUploadSerializer(serializers.Serializer):
 
 
 class ComplianceAssessmentReadSerializer(AssessmentReadSerializer):
+    project = FieldsRelatedField(["id", "folder"])
+    folder = FieldsRelatedField()
     framework = FieldsRelatedField(
-        ["id", "min_score", "max_score", "implementation_groups_definition"]
+        [
+            "id",
+            "min_score",
+            "max_score",
+            "implementation_groups_definition",
+            "ref_id",
+            "reference_controls",
+        ]
     )
     selected_implementation_groups = serializers.ReadOnlyField(
         source="get_selected_implementation_groups"
@@ -480,6 +575,19 @@ class ComplianceAssessmentReadSerializer(AssessmentReadSerializer):
 
 
 class ComplianceAssessmentWriteSerializer(BaseModelSerializer):
+    baseline = serializers.PrimaryKeyRelatedField(
+        write_only=True,
+        queryset=ComplianceAssessment.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    create_applied_controls_from_suggestions = serializers.BooleanField(
+        write_only=True, required=False, default=False
+    )
+
+    def create(self, validated_data: Any):
+        return super().create(validated_data)
+
     class Meta:
         model = ComplianceAssessment
         fields = "__all__"
@@ -488,6 +596,7 @@ class ComplianceAssessmentWriteSerializer(BaseModelSerializer):
 class RequirementAssessmentReadSerializer(BaseModelSerializer):
     name = serializers.CharField(source="__str__")
     description = serializers.CharField(source="get_requirement_description")
+    evidences = FieldsRelatedField(many=True)
     compliance_assessment = FieldsRelatedField()
     folder = FieldsRelatedField()
 
@@ -531,3 +640,27 @@ class RequirementAssessmentWriteSerializer(BaseModelSerializer):
     class Meta:
         model = RequirementAssessment
         fields = "__all__"
+
+
+class RequirementMappingSetReadSerializer(BaseModelSerializer):
+    source_framework = FieldsRelatedField()
+    target_framework = FieldsRelatedField()
+    library = FieldsRelatedField(["name", "id"])
+    folder = FieldsRelatedField()
+
+    class Meta:
+        model = RequirementMappingSet
+        fields = "__all__"
+
+
+class RequirementMappingSetWriteSerializer(RequirementMappingSetReadSerializer):
+    pass
+
+
+class ComputeMappingSerializer(serializers.Serializer):
+    mapping_set = serializers.PrimaryKeyRelatedField(
+        queryset=RequirementMappingSet.objects.all()
+    )
+    source_assessment = serializers.PrimaryKeyRelatedField(
+        queryset=ComplianceAssessment.objects.all()
+    )

@@ -1,9 +1,11 @@
-import type { urlModel } from './types';
-import { BASE_API_URL } from './constants';
+// define the content of forms
+
 import EvidenceFilePreview from '$lib/components/ModelTable/EvidenceFilePreview.svelte';
 import LanguageDisplay from '$lib/components/ModelTable/LanguageDisplay.svelte';
 import LibraryActions from '$lib/components/ModelTable/LibraryActions.svelte';
 import UserGroupNameDisplay from '$lib/components/ModelTable/UserGroupNameDisplay.svelte';
+import { BASE_API_URL } from './constants';
+import type { urlModel } from './types';
 
 type GetOptionsParams = {
 	objects: any[];
@@ -15,7 +17,7 @@ type GetOptionsParams = {
 	selfSelect?: boolean;
 };
 
-export function checkConstraints(constraints: { [key: string]: any }, foreignKeys: any) {
+export function checkConstraints(constraints: { [key: string]: any }, foreignKeys: any): string[] {
 	const emptyConstraintsList = [];
 	for (const [key, constraint] of Object.entries(constraints)) {
 		if (constraint.required && foreignKeys[key])
@@ -64,8 +66,8 @@ export const getOptions = ({
 								.map((field) => getValue(object, field))
 								.map((string) => `${string}`)
 								.join('/') +
-						  '/' +
-						  my_label
+							'/' +
+							my_label
 						: my_label,
 				value: object[value],
 				suggested: false
@@ -121,10 +123,12 @@ export interface ModelMapEntry {
 	verboseName: string;
 	verboseNamePlural?: string;
 	urlModel?: urlModel;
+	listViewUrlParams?: string;
 	detailViewFields?: Field[];
 	foreignKeyFields?: ForeignKeyField[];
 	reverseForeignKeyFields?: ForeignKeyField[];
 	selectFields?: SelectField[];
+	fileFields?: string[];
 	filters?: SelectField[];
 	path?: string;
 }
@@ -140,10 +144,12 @@ export const URL_MODEL_MAP: ModelMap = {
 		localNamePlural: 'domains',
 		verboseName: 'Domain',
 		verboseNamePlural: 'Domains',
-		foreignKeyFields: [
-			{ field: 'parent_folder', urlModel: 'folders', urlParams: 'content_type=GL' }
-		],
-		reverseForeignKeyFields: [{ field: 'folder', urlModel: 'projects' }]
+		listViewUrlParams: '?content_type=DO&content_type=GL',
+		foreignKeyFields: [{ field: 'parent_folder', urlModel: 'folders' }],
+		reverseForeignKeyFields: [
+			{ field: 'folder', urlModel: 'projects' },
+			{ field: 'folder', urlModel: 'entities' }
+		]
 	},
 	projects: {
 		name: 'project',
@@ -155,7 +161,8 @@ export const URL_MODEL_MAP: ModelMap = {
 		selectFields: [{ field: 'lc_status' }],
 		reverseForeignKeyFields: [
 			{ field: 'project', urlModel: 'risk-assessments' },
-			{ field: 'project', urlModel: 'compliance-assessments' }
+			{ field: 'project', urlModel: 'compliance-assessments' },
+			{ field: 'project', urlModel: 'entity-assessments' }
 		],
 		filters: [{ field: 'lc_status' }, { field: 'folder' }]
 	},
@@ -165,7 +172,9 @@ export const URL_MODEL_MAP: ModelMap = {
 		localNamePlural: 'riskMatrices',
 		verboseName: 'Risk matrix',
 		verboseNamePlural: 'Risk matrices',
-		foreignKeyFields: [{ field: 'folder', urlModel: 'folders' }]
+		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
+		]
 	},
 	'risk-assessments': {
 		name: 'riskassessment',
@@ -174,9 +183,10 @@ export const URL_MODEL_MAP: ModelMap = {
 		verboseName: 'Risk assessment',
 		verboseNamePlural: 'Risk assessments',
 		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO' },
 			{ field: 'project', urlModel: 'projects' },
 			{ field: 'authors', urlModel: 'users' },
-			{ field: 'reviewers', urlModel: 'users' },
+			{ field: 'reviewers', urlModel: 'users', urlParams: 'is_third_party=false' },
 			{ field: 'risk_matrix', urlModel: 'risk-matrices' },
 			{ field: 'risk_scenarios', urlModel: 'risk-scenarios' }
 		],
@@ -184,13 +194,23 @@ export const URL_MODEL_MAP: ModelMap = {
 		selectFields: [{ field: 'status' }],
 		filters: [{ field: 'project' }, { field: 'auditor' }, { field: 'status' }]
 	},
+	'risk-assessment_duplicate': {
+		name: 'riskassessment',
+		localName: 'riskAssessment',
+		localNamePlural: 'riskAssessments',
+		verboseName: 'Risk assessment',
+		verboseNamePlural: 'Risk assessments',
+		foreignKeyFields: [{ field: 'project', urlModel: 'projects' }]
+	},
 	threats: {
 		name: 'threat',
 		localName: 'threat',
 		localNamePlural: 'threats',
 		verboseName: 'Threat',
 		verboseNamePlural: 'Threats',
-		foreignKeyFields: [{ field: 'folder', urlModel: 'folders' }]
+		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
+		]
 	},
 	'risk-scenarios': {
 		name: 'riskscenario',
@@ -202,12 +222,14 @@ export const URL_MODEL_MAP: ModelMap = {
 			{ field: 'threats', urlModel: 'threats' },
 			{ field: 'risk_assessment', urlModel: 'risk-assessments' },
 			{ field: 'assets', urlModel: 'assets' },
+			{ field: 'vulnerabilities', urlModel: 'vulnerabilities' },
 			{ field: 'applied_controls', urlModel: 'applied-controls' },
 			{ field: 'project', urlModel: 'projects' },
 			{ field: 'risk_matrix', urlModel: 'risk-matrices' },
-			{ field: 'auditor', urlModel: 'users' }
+			{ field: 'auditor', urlModel: 'users' },
+			{ field: 'owner', urlModel: 'users' }
 		],
-		filters: [{ field: 'threats' }, { field: 'risk_assessment' }]
+		filters: [{ field: 'threats' }, { field: 'risk_assessment' }, { field: 'owner' }]
 	},
 	'applied-controls': {
 		name: 'appliedcontrol',
@@ -220,28 +242,40 @@ export const URL_MODEL_MAP: ModelMap = {
 			{ field: 'folder' },
 			{ field: 'reference_control' },
 			{ field: 'category' },
+			{ field: 'csf_function' },
 			{ field: 'effort' },
+			{ field: 'cost' },
+			{ field: 'status' },
 			{ field: 'created_at', type: 'datetime' },
 			{ field: 'updated_at', type: 'datetime' },
 			{ field: 'name' },
 			{ field: 'description' },
 			{ field: 'eta', type: 'date' },
+			{ field: 'owner' },
 			{ field: 'expiry_date', type: 'date' },
 			{ field: 'link' }
 		],
 		foreignKeyFields: [
 			{ field: 'reference_control', urlModel: 'reference-controls' },
-			{ field: 'folder', urlModel: 'folders' },
-			{ field: 'evidences', urlModel: 'evidences' }
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' },
+			{ field: 'evidences', urlModel: 'evidences' },
+			{ field: 'owner', urlModel: 'users' }
 		],
 		reverseForeignKeyFields: [{ field: 'applied_controls', urlModel: 'evidences' }],
-		selectFields: [{ field: 'status' }, { field: 'category' }, { field: 'effort' }],
+		selectFields: [
+			{ field: 'status' },
+			{ field: 'category' },
+			{ field: 'csf_function' },
+			{ field: 'effort' }
+		],
 		filters: [
 			{ field: 'reference_control' },
 			{ field: 'status' },
 			{ field: 'category' },
+			{ field: 'csf_function' },
 			{ field: 'effort' },
-			{ field: 'folder' }
+			{ field: 'folder' },
+			{ field: 'owner' }
 		]
 	},
 	policies: {
@@ -252,16 +286,30 @@ export const URL_MODEL_MAP: ModelMap = {
 		verboseNamePlural: 'Policies',
 		foreignKeyFields: [
 			{ field: 'reference_control', urlModel: 'reference-controls' },
-			{ field: 'folder', urlModel: 'folders' },
-			{ field: 'evidences', urlModel: 'evidences' }
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' },
+			{ field: 'evidences', urlModel: 'evidences' },
+			{ field: 'owner', urlModel: 'users' }
 		],
-		selectFields: [{ field: 'status' }, { field: 'effort' }],
+		reverseForeignKeyFields: [{ field: 'applied_controls', urlModel: 'evidences' }],
+		selectFields: [{ field: 'csf_function' }, { field: 'status' }, { field: 'effort' }],
 		filters: [
 			{ field: 'reference_control' },
+			{ field: 'csf_function' },
 			{ field: 'status' },
 			{ field: 'effort' },
 			{ field: 'folder' }
 		]
+	},
+	vulnerabilities: {
+		name: 'vulnerability',
+		localName: 'vulnerability',
+		localNamePlural: 'vulnerabilities',
+		verboseName: 'Vulnerability',
+		verboseNamePlural: 'Vulnerabilities',
+		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
+		],
+		selectFields: [{ field: 'status' }]
 	},
 	'risk-acceptances': {
 		name: 'riskacceptance',
@@ -275,7 +323,7 @@ export const URL_MODEL_MAP: ModelMap = {
 				urlModel: 'risk-scenarios',
 				urlParams: '/acceptable'
 			},
-			{ field: 'folder', urlModel: 'folders' },
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' },
 			{ field: 'approver', urlModel: 'users', urlParams: 'is_approver=true' }
 		],
 		filters: [{ field: 'risk_scenarios' }, { field: 'folder' }, { field: 'approver' }]
@@ -286,8 +334,10 @@ export const URL_MODEL_MAP: ModelMap = {
 		localNamePlural: 'referenceControls',
 		verboseName: 'Reference control',
 		verboseNamePlural: 'Reference controls',
-		foreignKeyFields: [{ field: 'folder', urlModel: 'folders' }],
-		selectFields: [{ field: 'category' }],
+		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
+		],
+		selectFields: [{ field: 'category' }, { field: 'csf_function' }],
 		filters: [{ field: 'folder' }]
 	},
 	assets: {
@@ -298,7 +348,7 @@ export const URL_MODEL_MAP: ModelMap = {
 		verboseNamePlural: 'Assets',
 		foreignKeyFields: [
 			{ field: 'parent_assets', urlModel: 'assets' },
-			{ field: 'folder', urlModel: 'folders' }
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
 		],
 		selectFields: [{ field: 'type' }],
 		filters: [{ field: 'parent_assets' }, { field: 'folder' }, { field: 'type' }]
@@ -319,7 +369,9 @@ export const URL_MODEL_MAP: ModelMap = {
 
 		verboseName: 'User group',
 		verboseNamePlural: 'User groups',
-		foreignKeyFields: [{ field: 'folder', urlModel: 'folders' }],
+		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
+		],
 		filters: []
 	},
 	'role-assignments': {
@@ -338,10 +390,7 @@ export const URL_MODEL_MAP: ModelMap = {
 		verboseName: 'Framework',
 		verboseNamePlural: 'Frameworks',
 		foreignKeyFields: [
-			{
-				field: 'folder',
-				urlModel: 'folders'
-			}
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' }
 		]
 	},
 	evidences: {
@@ -350,10 +399,10 @@ export const URL_MODEL_MAP: ModelMap = {
 		localNamePlural: 'evidences',
 		verboseName: 'Evidence',
 		verboseNamePlural: 'Evidences',
+		fileFields: ['attachment'],
 		foreignKeyFields: [
-			{ field: 'folder', urlModel: 'folders' },
-			{ field: 'applied_controls', urlModel: 'applied-controls' },
-			{ field: 'requirement_assessments', urlModel: 'requirement-assessments' }
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' },
+			{ field: 'applied_controls', urlModel: 'applied-controls' }
 		]
 	},
 	'compliance-assessments': {
@@ -363,10 +412,12 @@ export const URL_MODEL_MAP: ModelMap = {
 		verboseName: 'Compliance assessment',
 		verboseNamePlural: 'Compliance assessments',
 		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO' },
 			{ field: 'project', urlModel: 'projects' },
 			{ field: 'framework', urlModel: 'frameworks' },
 			{ field: 'authors', urlModel: 'users' },
-			{ field: 'reviewers', urlModel: 'users' }
+			{ field: 'reviewers', urlModel: 'users', urlParams: 'is_third_party=false' },
+			{ field: 'baseline', urlModel: 'compliance-assessments' }
 		],
 		selectFields: [{ field: 'status' }, { field: 'selected_implementation_groups', detail: true }],
 		filters: [{ field: 'status' }]
@@ -384,7 +435,7 @@ export const URL_MODEL_MAP: ModelMap = {
 		localNamePlural: 'requirementAssessments',
 		verboseName: 'Requirement assessment',
 		verboseNamePlural: 'Requirement assessments',
-		selectFields: [{ field: 'status' }],
+		selectFields: [{ field: 'status' }, { field: 'result' }],
 		foreignKeyFields: [
 			{ field: 'applied_controls', urlModel: 'applied-controls' },
 			{ field: 'evidences', urlModel: 'evidences' },
@@ -412,24 +463,97 @@ export const URL_MODEL_MAP: ModelMap = {
 		verboseName: 'SSO settings',
 		verboseNamePlural: 'SSO settings',
 		selectFields: [{ field: 'provider' }]
+	},
+	'requirement-mapping-sets': {
+		name: 'requirementmappingset',
+		localName: 'requirementMappingSet',
+		localNamePlural: 'requirementMappingSets',
+		verboseName: 'Requirement mapping set',
+		verboseNamePlural: 'Requirement mapping sets',
+		foreignKeyFields: [
+			{ field: 'source_framework', urlModel: 'frameworks' },
+			{ field: 'target_framework', urlModel: 'frameworks' },
+			{ field: 'library', urlModel: 'libraries' }
+		]
+	},
+	entities: {
+		name: 'entity',
+		localName: 'entity',
+		localNamePlural: 'entities',
+		verboseName: 'Entity',
+		verboseNamePlural: 'Entities',
+		reverseForeignKeyFields: [
+			{ field: 'entity', urlModel: 'solutions' },
+			{ field: 'entity', urlModel: 'representatives' },
+			{ field: 'entity', urlModel: 'entity-assessments' }
+		],
+		foreignKeyFields: [
+			{ field: 'folder', urlModel: 'folders', urlParams: 'content_type=DO&content_type=GL' },
+			{ field: 'owned_folders', urlModel: 'folders', urlParams: 'owned=false' }
+		]
+	},
+	'entity-assessments': {
+		name: 'entityassessment',
+		localName: 'entityAssessment',
+		localNamePlural: 'entityAssessments',
+		verboseName: 'Entity assessment',
+		verboseNamePlural: 'Entity assessments',
+		foreignKeyFields: [
+			{ field: 'project', urlModel: 'projects' },
+			{ field: 'entity', urlModel: 'entities' },
+			{ field: 'solutions', urlModel: 'solutions' },
+			{ field: 'framework', urlModel: 'frameworks' },
+			{ field: 'authors', urlModel: 'users', urlParams: 'is_third_party=false' },
+			{ field: 'representatives', urlModel: 'users', urlParams: 'is_third_party=true' },
+			{ field: 'reviewers', urlModel: 'users', urlParams: 'is_third_party=false' },
+			{ field: 'evidence', urlModel: 'evidences' },
+			{ field: 'compliance_assessment', urlModel: 'compliance-assessments' }
+		],
+		selectFields: [
+			{ field: 'status' },
+			{ field: 'selected_implementation_groups', detail: true },
+			{ field: 'conclusion' }
+		],
+		filters: [{ field: 'status' }]
+	},
+	solutions: {
+		name: 'solution',
+		localName: 'solution',
+		localNamePlural: 'solutions',
+		verboseName: 'Solution',
+		verboseNamePlural: 'Solutions',
+		foreignKeyFields: [
+			{ field: 'provider_entity', urlModel: 'entities' },
+			{ field: 'recipient_entity', urlModel: 'entities' }
+		]
+	},
+	representatives: {
+		name: 'representative',
+		localName: 'representative',
+		localNamePlural: 'representatives',
+		verboseName: 'Representative',
+		verboseNamePlural: 'Representatives',
+		foreignKeyFields: [{ field: 'entity', urlModel: 'entities' }]
 	}
 };
+
+export const CUSTOM_ACTIONS_COMPONENT = Symbol('CustomActions');
 
 export const FIELD_COMPONENT_MAP = {
 	evidences: {
 		attachment: EvidenceFilePreview
 	},
 	libraries: {
-		locale: LanguageDisplay,
-		actions: LibraryActions
+		locales: LanguageDisplay,
+		[CUSTOM_ACTIONS_COMPONENT]: LibraryActions
 	},
 	// "stored-libraries": {
 	// 	locale: LanguageDisplay,
-	// 	actions: LibraryActions
+	// 	[CUSTOM_ACTIONS_COMPONENT]: LibraryActions
 	// },
 	// "loaded-libraries": {
 	// 	locale: LanguageDisplay
-	// 	// actions: LibraryActions
+	// 	// [CUSTOM_ACTIONS_COMPONENT]: LibraryActions
 	// },
 	'user-groups': {
 		localization_dict: UserGroupNameDisplay
@@ -439,116 +563,142 @@ export const FIELD_COMPONENT_MAP = {
 // Il faut afficher le tag "draft" pour la column name !
 
 interface TagConfig {
-	key: string;
-	values: {
-		[key: string]: {
-			text: string;
-			cssClasses: string;
-		};
-	};
+	text: string;
+	cssClasses: string;
 }
 
 interface FieldColoredTagMap {
 	[key: string]: {
-		[key: string]: TagConfig[] | TagConfig;
+		[key: string]: {
+			keys: { [key: string]: { [key: string]: TagConfig } };
+			values?: { [key: string]: TagConfig };
+		};
 	};
 }
 
 export const FIELD_COLORED_TAG_MAP: FieldColoredTagMap = {
+	policies: {
+		name: {
+			keys: {
+				status: {
+					to_do: { text: 'toDo', cssClasses: 'badge bg-blue-200' },
+					in_progress: { text: 'inProgress', cssClasses: 'badge bg-yellow-300' },
+					active: { text: 'active', cssClasses: 'badge bg-green-200' },
+					on_hold: { text: 'onHold', cssClasses: 'badge bg-gray-300' },
+					deprecated: { text: 'deprecated', cssClasses: 'badge bg-red-300' },
+					'--': { text: 'undefined', cssClasses: 'badge bg-gray-300' }
+				}
+			}
+		}
+	},
 	'risk-assessments': {
 		name: {
-			key: 'status',
-			values: {
-				planned: { text: 'planned', cssClasses: 'badge bg-indigo-300' },
-				in_progress: { text: 'inProgress', cssClasses: 'badge bg-yellow-300' },
-				in_review: { text: 'inReview', cssClasses: 'badge bg-cyan-300' },
-				done: { text: 'done', cssClasses: 'badge bg-lime-300' },
-				deprecated: { text: 'deprecated', cssClasses: 'badge bg-orange-300' }
+			keys: {
+				status: {
+					planned: { text: 'planned', cssClasses: 'badge bg-indigo-300' },
+					in_progress: { text: 'inProgress', cssClasses: 'badge bg-yellow-300' },
+					in_review: { text: 'inReview', cssClasses: 'badge bg-cyan-300' },
+					done: { text: 'done', cssClasses: 'badge bg-lime-300' },
+					deprecated: { text: 'deprecated', cssClasses: 'badge bg-orange-300' }
+				}
 			}
 		}
 	},
 	'risk-scenarios': {
 		name: {
-			key: 'treatment',
-			values: {
-				Open: { text: 'open', cssClasses: 'badge bg-green-300' },
-				Mitigate: { text: 'mitigate', cssClasses: 'badge bg-lime-200' },
-				Accept: { text: 'accept', cssClasses: 'badge bg-green-200' },
-				Avoid: { text: 'avoid', cssClasses: 'badge bg-red-200' },
-				Transfer: { text: 'transfer', cssClasses: 'badge bg-yellow-300' }
+			keys: {
+				treatment: {
+					open: { text: 'open', cssClasses: 'badge bg-green-300' },
+					mitigate: { text: 'mitigate', cssClasses: 'badge bg-lime-200' },
+					accept: { text: 'accept', cssClasses: 'badge bg-green-200' },
+					avoid: { text: 'avoid', cssClasses: 'badge bg-red-200' },
+					transfer: { text: 'transfer', cssClasses: 'badge bg-yellow-300' }
+				}
 			}
 		}
 	},
 	'compliance-assessments': {
 		name: {
-			key: 'status',
-			values: {
-				planned: { text: 'planned', cssClasses: 'badge bg-indigo-300' },
-				in_progress: { text: 'inProgress', cssClasses: 'badge bg-yellow-300' },
-				in_review: { text: 'inReview', cssClasses: 'badge bg-cyan-300' },
-				done: { text: 'done', cssClasses: 'badge bg-lime-300' },
-				deprecated: { text: 'deprecated', cssClasses: 'badge bg-orange-300' }
+			keys: {
+				status: {
+					planned: { text: 'planned', cssClasses: 'badge bg-indigo-300' },
+					in_progress: { text: 'inProgress', cssClasses: 'badge bg-yellow-300' },
+					in_review: { text: 'inReview', cssClasses: 'badge bg-cyan-300' },
+					done: { text: 'done', cssClasses: 'badge bg-lime-300' },
+					deprecated: { text: 'deprecated', cssClasses: 'badge bg-orange-300' }
+				}
 			}
 		}
 	},
 	assets: {
 		name: {
-			key: 'type',
-			values: {
-				Primary: { text: 'primary', cssClasses: 'badge bg-blue-200' }
+			keys: {
+				type: {
+					Primary: { text: 'primary', cssClasses: 'badge bg-blue-200' }
+				}
 			}
 		}
 	},
 	'applied-controls': {
 		name: {
-			key: 'status',
-			values: {
-				Planned: { text: 'planned', cssClasses: 'badge bg-blue-200' },
-				Active: { text: 'active', cssClasses: 'badge bg-green-200' },
-				Inactive: { text: 'inactive', cssClasses: 'badge bg-red-300' },
-				null: { text: 'undefined', cssClasses: 'badge bg-gray-300' }
+			keys: {
+				status: {
+					to_do: { text: 'toDo', cssClasses: 'badge bg-blue-200' },
+					in_progress: { text: 'inProgress', cssClasses: 'badge bg-yellow-300' },
+					active: { text: 'active', cssClasses: 'badge bg-green-200' },
+					on_hold: { text: 'onHold', cssClasses: 'badge bg-gray-300' },
+					deprecated: { text: 'deprecated', cssClasses: 'badge bg-red-300' },
+					'--': { text: 'undefined', cssClasses: 'badge bg-gray-300' }
+				}
 			}
 		}
 	},
 	projects: {
 		name: {
-			key: 'lc_status',
-			values: {
-				Dropped: { text: 'dropped', cssClasses: 'badge bg-red-200' }
+			keys: {
+				lc_status: {
+					Dropped: { text: 'dropped', cssClasses: 'badge bg-red-200' }
+				}
 			}
 		}
 	},
 	users: {
 		email: {
-			key: 'is_sso',
-			values: {
-				true: { text: 'SSO', cssClasses: 'badge bg-violet-200' }
+			keys: {
+				is_sso: {
+					true: { text: 'SSO', cssClasses: 'badge bg-violet-200' }
+				},
+				is_third_party: {
+					true: { text: 'Third party', cssClasses: 'badge bg-stone-200' }
+				}
 			}
 		}
 	}
 };
 
-export const CUSTOM_MODEL_FETCH_MAP: { [key: string]: (load_data: any) => any } = {
-	frameworks: async ({ fetch }) => {
-		const endpoint = `${BASE_API_URL}/frameworks/`;
-		const res = await fetch(endpoint);
-		const response_data = await res.json();
-		const frameworks = response_data.results;
+export const CUSTOM_MODEL_FETCH_MAP: { [key: string]: (load_data: any, language: string) => any } =
+	{
+		frameworks: async ({ fetch }) => {
+			// ({ fetch }, language)
+			const endpoint = `${BASE_API_URL}/frameworks/`;
+			const res = await fetch(endpoint);
+			const response_data = await res.json();
+			const frameworks = response_data.results;
 
-		let compliance_assessment_req = null;
-		let compliance_assessment_data = null;
+			let compliance_assessment_req = null;
+			let compliance_assessment_data = null;
 
-		for (const framework of frameworks) {
-			compliance_assessment_req = await fetch(
-				`${BASE_API_URL}/compliance-assessments/?framework=${framework.id}`
-			);
-			compliance_assessment_data = await compliance_assessment_req.json();
-			framework.compliance_assessments = compliance_assessment_data.count;
+			for (const framework of frameworks) {
+				compliance_assessment_req = await fetch(
+					`${BASE_API_URL}/compliance-assessments/?framework=${framework.id}`
+				);
+				compliance_assessment_data = await compliance_assessment_req.json();
+				framework.compliance_assessments = compliance_assessment_data.count;
+			}
+
+			return frameworks;
 		}
-
-		return frameworks;
-	}
-};
+	};
 
 export const urlParamModelVerboseName = (model: string): string => {
 	return URL_MODEL_MAP[model]?.verboseName || '';
@@ -562,7 +712,7 @@ export const urlParamModelSelectFields = (model: string): SelectField[] => {
 	return URL_MODEL_MAP[model]?.selectFields || [];
 };
 
-export const getModelInfo = (model: urlModel): ModelMapEntry => {
+export const getModelInfo = (model: urlModel | string): ModelMapEntry => {
 	const map = URL_MODEL_MAP[model] || {};
 	map['urlModel'] = model;
 	return map;

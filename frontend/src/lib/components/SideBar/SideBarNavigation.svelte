@@ -4,9 +4,6 @@
 	import SideBarItem from '$lib/components/SideBar/SideBarItem.svelte';
 	import SideBarCategory from '$lib/components/SideBar/SideBarCategory.svelte';
 	import { Accordion, AccordionItem } from '@skeletonlabs/skeleton';
-	import { localStorageStore } from '@skeletonlabs/skeleton';
-	// import { browser } from '$app/environment';
-	import type { Writable } from 'svelte/store';
 	import { page } from '$app/stores';
 	import { URL_MODEL_MAP } from '$lib/utils/crud';
 
@@ -30,7 +27,9 @@
 		.map((item) => {
 			// Check and filter the sub-items based on user permissions
 			const filteredSubItems = item.items.filter((subItem) => {
-				if (subItem.permissions) {
+				if (subItem.exclude) {
+					return subItem.exclude.some((role) => !user.roles.includes(role));
+				} else if (subItem.permissions) {
 					return subItem.permissions.some((permission) =>
 						Object.hasOwn(user.permissions, permission)
 					);
@@ -49,7 +48,7 @@
 		})
 		.filter((item) => item.items.length > 0); // Filter out items with no sub-items
 
-	const lastAccordionItem: Writable<string> = localStorageStore('lastAccordionItem', '');
+	import { lastAccordionItem } from '$lib/utils/stores';
 
 	function lastAccordionItemOpened(value: string) {
 		lastAccordionItem.set(value);

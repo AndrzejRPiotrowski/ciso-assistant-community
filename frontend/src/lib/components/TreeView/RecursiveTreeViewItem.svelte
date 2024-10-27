@@ -122,16 +122,26 @@
 	// important to pass children up to items (recursively)
 	export let treeItems: TreeViewItem[] = [];
 	let children: TreeViewItem[][] = [];
+
+	function hasMappingInference(node: TreeViewNode) {
+		const length = Object.keys(node.contentProps?.mapping_inference ?? {}).length;
+		if (length > 0) {
+			return true;
+		}
+		return false;
+	}
 </script>
 
 {#if nodes && nodes.length > 0}
 	{#each nodes as node, i}
 		<TreeViewItem
+			class={node.contentProps.hidden === true ? 'hidden' : null}
 			bind:this={treeItems[i]}
 			bind:children={children[i]}
 			bind:group
 			bind:name
 			bind:value={node.id}
+			mappingInference={hasMappingInference(node)}
 			hideLead={!node.lead}
 			hideChildren={!node.children || node.children.length === 0}
 			open={expandedNodes.includes(node.id)}

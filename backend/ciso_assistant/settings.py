@@ -26,6 +26,7 @@ BUILD = os.getenv("CISO_ASSISTANT_BUILD", "unset")
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_FORMAT = os.environ.get("LOG_FORMAT", "plain")
+LOG_OUTFILE = os.environ.get("LOG_OUTFILE", "")
 
 CISO_ASSISTANT_URL = os.environ.get("CISO_ASSISTANT_URL", "http://localhost:5173")
 
@@ -59,6 +60,15 @@ LOGGING = {
     },
 }
 
+if LOG_OUTFILE:
+    LOGGING["handlers"]["file"] = {
+        "level": LOG_LEVEL,
+        "class": "logging.handlers.WatchedFileHandler",
+        "filename": "ciso-assistant.log",
+        "formatter": "json",
+    }
+    LOGGING["loggers"][""]["handlers"].append("file")
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
@@ -81,6 +91,11 @@ structlog.configure(
 logging.config.dictConfig(LOGGING)
 logger = structlog.getLogger(__name__)
 
+FEATURE_FLAGS = {}
+MODULE_PATHS = {}
+ROUTES = {}
+MODULES = {}
+
 logger.info("BASE_DIR: %s", BASE_DIR)
 logger.info("VERSION: %s", VERSION)
 logger.info("BUILD: %s", BUILD)
@@ -94,7 +109,7 @@ logger.info("BUILD: %s", BUILD)
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", get_random_secret_key())
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DJANGO_DEBUG") == "True"
+DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
 logger.info("DEBUG mode: %s", DEBUG)
 logger.info("CISO_ASSISTANT_URL: %s", CISO_ASSISTANT_URL)
@@ -123,10 +138,10 @@ INSTALLED_APPS = [
     "tailwind",
     "iam",
     "global_settings",
+    "tprm",
     "core",
     "cal",
     "django_filters",
-    # "debug_toolbar",
     "library",
     "serdes",
     "rest_framework",
@@ -196,10 +211,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": PAGINATE_BY,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "core.helpers.handle",
 }
 
 REST_KNOX = {
-    "SECURE_HASH_ALGORITHM": "cryptography.hazmat.primitives.hashes.SHA512",
+    "SECURE_HASH_ALGORITHM": "hashlib.sha512",
     "AUTH_TOKEN_CHARACTER_LENGTH": 64,
     "TOKEN_TTL": timedelta(seconds=AUTH_TOKEN_TTL),
     "TOKEN_LIMIT_PER_USER": None,
@@ -283,6 +299,16 @@ USE_TZ = True
 LANGUAGES = [
     ("en", "English"),
     ("fr", "French"),
+    ("es", "Spanish"),
+    ("de", "German"),
+    ("it", "Italian"),
+    ("nd", "Dutch"),
+    ("pl", "Polish"),
+    ("pt", "Portuguese"),
+    ("ar", "Arabic"),
+    ("ro", "Romanian"),
+    ("hi", "Hindi"),
+    ("ur", "Urdu"),
 ]
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -352,8 +378,8 @@ ACCOUNT_AUTHENTICATION_METHOD = "email"
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-ACCOUNT_ADAPTER = "iam.adapter.MyAccountAdapter"
-SOCIALACCOUNT_ADAPTER = "iam.adapter.MySocialAccountAdapter"
+ACCOUNT_ADAPTER = "iam.adapter.AccountAdapter"
+SOCIALACCOUNT_ADAPTER = "iam.adapter.SocialAccountAdapter"
 
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True

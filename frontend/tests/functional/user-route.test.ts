@@ -48,7 +48,7 @@ test('user usual routine actions are working correctly', async ({
 	});
 
 	await test.step('user can create an asset', async () => {
-		await sideBar.click('Context', pages.assetsPage.url);
+		await sideBar.click('Organization', pages.assetsPage.url);
 		await pages.assetsPage.hasUrl();
 		await pages.assetsPage.hasTitle();
 
@@ -64,7 +64,7 @@ test('user usual routine actions are working correctly', async ({
 	});
 
 	await test.step('user can import a framework', async () => {
-		await sideBar.click('Compliance', pages.frameworksPage.url);
+		await sideBar.click('Catalog', pages.frameworksPage.url);
 		await pages.frameworksPage.hasUrl();
 		await pages.frameworksPage.hasTitle();
 
@@ -74,13 +74,13 @@ test('user usual routine actions are working correctly', async ({
 
 		await pages.librariesPage.importLibrary(vars.framework.ref, vars.framework.urn);
 
-		await sideBar.click('Compliance', pages.frameworksPage.url);
+		await sideBar.click('Catalog', pages.frameworksPage.url);
 		await pages.frameworksPage.hasUrl();
 		await expect(page.getByRole('row', { name: vars.framework.name })).toBeVisible();
 	});
 
 	await test.step('user can create a reference control', async () => {
-		await sideBar.click('Context', pages.referenceControlsPage.url);
+		await sideBar.click('Catalog', pages.referenceControlsPage.url);
 		await pages.referenceControlsPage.hasUrl();
 		await pages.referenceControlsPage.hasTitle();
 
@@ -88,6 +88,7 @@ test('user usual routine actions are working correctly', async ({
 			name: vars.referenceControlName,
 			description: vars.description,
 			category: 'Physical',
+			csf_function: 'protect',
 			provider: 'Test provider',
 			folder: vars.folderName
 		});
@@ -96,7 +97,7 @@ test('user usual routine actions are working correctly', async ({
 	});
 
 	await test.step('user can create an applied control', async () => {
-		await sideBar.click('Context', pages.appliedControlsPage.url);
+		await sideBar.click('Operations', pages.appliedControlsPage.url);
 		await pages.appliedControlsPage.hasUrl();
 		await pages.appliedControlsPage.hasTitle();
 
@@ -104,10 +105,12 @@ test('user usual routine actions are working correctly', async ({
 			name: vars.appliedControlName,
 			description: vars.description,
 			category: 'Technical',
-			status: 'Planned',
+			csf_function: 'protect',
+			status: 'To do',
 			eta: '2025-01-01',
 			link: 'https://intuitem.com/',
 			effort: 'Large',
+			cost: 24.42,
 			folder: vars.folderName,
 			reference_control: `${vars.folderName}/${vars.referenceControlName}`
 		});
@@ -155,7 +158,7 @@ test('user usual routine actions are working correctly', async ({
 	});
 
 	await test.step('user can import a risk matrix', async () => {
-		await sideBar.click('Governance', pages.riskMatricesPage.url);
+		await sideBar.click('Catalog', pages.riskMatricesPage.url);
 		await pages.riskMatricesPage.hasUrl();
 		await pages.riskMatricesPage.hasTitle();
 
@@ -165,7 +168,7 @@ test('user usual routine actions are working correctly', async ({
 
 		await pages.librariesPage.importLibrary(vars.matrix.name, vars.matrix.urn);
 
-		await sideBar.click('Governance', pages.riskMatricesPage.url);
+		await sideBar.click('Catalog', pages.riskMatricesPage.url);
 		await pages.riskMatricesPage.hasUrl();
 		await expect(page.getByRole('row', { name: vars.matrix.displayName })).toBeVisible();
 	});
@@ -179,7 +182,7 @@ test('user usual routine actions are working correctly', async ({
 			name: vars.riskAssessmentName,
 			description: vars.description,
 			project: vars.folderName + '/' + vars.projectName,
-			version: '1.4.2',
+			version: vars.riskAssessmentVersion,
 			status: 'Done',
 			risk_matrix: vars.matrix.displayName,
 			eta: '2025-01-01',
@@ -190,7 +193,7 @@ test('user usual routine actions are working correctly', async ({
 	});
 
 	await test.step('user can create a threat', async () => {
-		await sideBar.click('Context', pages.threatsPage.url);
+		await sideBar.click('Catalog', pages.threatsPage.url);
 		await pages.threatsPage.hasUrl();
 		await pages.threatsPage.hasTitle();
 
@@ -212,7 +215,7 @@ test('user usual routine actions are working correctly', async ({
 		await pages.riskScenariosPage.createItem({
 			name: vars.riskScenarioName,
 			description: vars.description,
-			risk_assessment: `${vars.folderName}/${vars.projectName}/${vars.riskAssessmentName}`,
+			risk_assessment: `${vars.folderName}/${vars.projectName}/${vars.riskAssessmentName} - ${vars.riskAssessmentVersion}`,
 			threats: [`${vars.folderName}/${vars.threatName}`]
 		});
 
@@ -220,7 +223,7 @@ test('user usual routine actions are working correctly', async ({
 	});
 
 	await test.step('user can create a risk acceptance', async () => {
-		await sideBar.click('Risk', pages.riskAcceptancesPage.url);
+		await sideBar.click('Governance', pages.riskAcceptancesPage.url);
 		await pages.riskAcceptancesPage.hasUrl();
 		await pages.riskAcceptancesPage.hasTitle();
 
@@ -230,7 +233,9 @@ test('user usual routine actions are working correctly', async ({
 			expiry_date: '2025-01-01',
 			folder: vars.folderName,
 			approver: LoginPage.defaultEmail,
-			risk_scenarios: [`${vars.folderName}/${vars.projectName}/${vars.riskScenarioName}`]
+			risk_scenarios: [
+				`${vars.folderName}/${vars.projectName}/${vars.riskAssessmentName} - ${vars.riskAssessmentVersion}/${vars.riskScenarioName}`
+			]
 		});
 
 		//TODO assert that the risk acceptance data are displayed in the table

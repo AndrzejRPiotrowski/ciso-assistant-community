@@ -1,50 +1,106 @@
-from pathlib import Path
-from django.apps import apps
-from django.forms.models import model_to_dict
-from django.contrib.auth import get_user_model
-from django.db import models, transaction
-from django.utils.translation import gettext_lazy as _
-from django.db.models import Q
-
-from .base_models import *
-from .validators import validate_file_size, validate_file_name
-from .utils import camel_case, sha256
-from iam.models import FolderMixin, PublishInRootFolderMixin
-from django.core import serializers
-
-import os
 import json
-import yaml
-
-from django.urls import reverse
+import os
+import re
 from datetime import date, datetime
-from typing import Union, Dict, Set, List, Tuple, Type, Self
-from django.utils.html import format_html
+from pathlib import Path
+from typing import Self, Type, Union
 
+import yaml
+from django.apps import apps
+from django.contrib.auth import get_user_model
+from django.core import serializers
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
+from django.db import models, transaction
+from django.db.models import Q
+from django.forms.models import model_to_dict
+from django.urls import reverse
+from django.utils.html import format_html
+from django.utils.translation import get_language
+from django.utils.translation import gettext_lazy as _
 from structlog import get_logger
+from django.utils.timezone import now
+
+from iam.models import Folder, FolderMixin, PublishInRootFolderMixin
+from library.helpers import (
+    get_referential_translation,
+    update_translations,
+    update_translations_as_string,
+    update_translations_in_object,
+)
+
+from .base_models import AbstractBaseModel, ETADueDateMixin, NameDescriptionMixin
+from .utils import camel_case, sha256
+from .validators import validate_file_name, validate_file_size
 
 logger = get_logger(__name__)
 
 User = get_user_model()
 
+
+URN_REGEX = r"^urn:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]+)(?::([a-zA-Z0-9_-]+))?:([0-9A-Za-z\[\]\(\)\-\._:]+)$"
+
+
+def match_urn(urn_string):
+    match = re.match(URN_REGEX, urn_string)
+    if match:
+        return match.groups()  # Returns all captured groups from the regex match
+    else:
+        return None
+
+
+def transform_question_to_answer(json_data):
+    """
+    Used during Requirement Assessment creation to create a questionnaire base on
+    the Requirement Node question JSON field
+
+    Args:
+        json_data (json): JSON describing a questionnaire from a Requirement Node
+
+    Returns:
+        json: JSON formatted for the frontend to display a form
+    """
+    question_type = json_data.get("question_type", "")
+    question_choices = json_data.get("question_choices", [])
+    questions = json_data.get("questions", [])
+
+    form_fields = []
+
+    for question in questions:
+        field = {}
+        field["urn"] = question.get("urn", "")
+        field["text"] = question.get("text", "")
+
+        if question_type == "unique_choice":
+            field["type"] = "unique_choice"
+            field["options"] = question_choices
+        elif question_type == "date":
+            field["type"] = "date"
+        else:
+            field["type"] = "text"
+
+        field["answer"] = ""
+
+        form_fields.append(field)
+
+    form_json = {"questions": form_fields}
+    return form_json
+
+
 ########################### Referential objects #########################
 
 
-class ReferentialObjectMixin(NameDescriptionMixin, FolderMixin):
+class ReferentialObjectMixin(AbstractBaseModel, FolderMixin):
     """
     Mixin for referential objects.
     """
 
     urn = models.CharField(
-        max_length=100, null=True, blank=True, unique=True, verbose_name=_("URN")
+        max_length=255, null=True, blank=True, unique=True, verbose_name=_("URN")
     )
-    ref_id = models.CharField(
+    ref_id = models.CharField(  # Should this field be nullable ?
         max_length=100, blank=True, null=True, verbose_name=_("Reference ID")
     )
-    locale = models.CharField(
-        max_length=100, null=False, blank=False, default="en", verbose_name=_("Locale")
-    )
-    default_locale = models.BooleanField(default=True, verbose_name=_("Default locale"))
     provider = models.CharField(
         max_length=200, blank=True, null=True, verbose_name=_("Provider")
     )
@@ -53,18 +109,39 @@ class ReferentialObjectMixin(NameDescriptionMixin, FolderMixin):
     )
     description = models.TextField(null=True, blank=True, verbose_name=_("Description"))
     annotation = models.TextField(null=True, blank=True, verbose_name=_("Annotation"))
+    translations = models.JSONField(
+        null=True, blank=True, verbose_name=_("Translations")
+    )
 
     class Meta:
         abstract = True
 
     @property
+    def get_name_translated(self) -> str:
+        translations = self.translations if self.translations else {}
+        locale_translations = translations.get(get_language(), {})
+        return locale_translations.get("name", self.name)
+
+    @property
+    def get_description_translated(self) -> str:
+        translations = self.translations if self.translations else {}
+        locale_translations = translations.get(get_language(), {})
+        return locale_translations.get("description", self.description)
+
+    @property
+    def get_annotation_translated(self) -> str:
+        translations = self.translations if self.translations else {}
+        locale_translations = translations.get(get_language(), {})
+        return locale_translations.get("annotation", self.annotation)
+
+    @property
     def display_short(self) -> str:
         _name = (
             self.ref_id
-            if not self.name
-            else self.name
+            if not self.get_name_translated
+            else self.get_name_translated
             if not self.ref_id
-            else f"{self.ref_id} - {self.name}"
+            else f"{self.ref_id} - {self.get_name_translated}"
         )
         _name = "" if not _name else _name
         return _name
@@ -74,10 +151,10 @@ class ReferentialObjectMixin(NameDescriptionMixin, FolderMixin):
         _name = self.display_short
         _display = (
             _name
-            if not self.description
-            else self.description
+            if not self.get_description_translated
+            else self.get_description_translated
             if _name == ""
-            else f"{_name}: {self.description}"
+            else f"{_name}: {self.get_description_translated}"
         )
         return _display
 
@@ -85,12 +162,22 @@ class ReferentialObjectMixin(NameDescriptionMixin, FolderMixin):
         return self.display_short
 
 
-class LibraryMixin(ReferentialObjectMixin):
+class I18nObjectMixin(models.Model):
+    locale = models.CharField(
+        max_length=100, null=False, blank=False, default="en", verbose_name=_("Locale")
+    )
+    default_locale = models.BooleanField(default=True, verbose_name=_("Default locale"))
+
+    class Meta:
+        abstract = True
+
+
+class LibraryMixin(ReferentialObjectMixin, I18nObjectMixin):
     class Meta:
         abstract = True
         unique_together = [["urn", "locale", "version"]]
 
-    urn = models.CharField(max_length=100, null=True, blank=True, verbose_name=_("URN"))
+    urn = models.CharField(max_length=255, null=True, blank=True, verbose_name=_("URN"))
     copyright = models.CharField(
         max_length=4096, null=True, blank=True, verbose_name=_("Copyright")
     )
@@ -107,6 +194,14 @@ class LibraryMixin(ReferentialObjectMixin):
     dependencies = models.JSONField(
         null=True
     )  # models.CharField(blank=False,null=True,max_length=16384)
+
+    @property
+    def get_locales(self):
+        return (
+            [self.locale] + list(self.translations.keys())
+            if self.translations
+            else [self.locale]
+        )
 
 
 class StoredLibrary(LibraryMixin):
@@ -128,8 +223,6 @@ class StoredLibrary(LibraryMixin):
     def store_library_content(
         cls, library_content: bytes, builtin: bool = False
     ) -> "StoredLibrary | None":
-        from library.utils import match_urn
-
         hash_checksum = sha256(library_content)
         if hash_checksum in StoredLibrary.HASH_CHECKSUM_SET:
             return None  # We do not store the library if its hash checksum is in the database.
@@ -142,7 +235,6 @@ class StoredLibrary(LibraryMixin):
         except yaml.YAMLError as e:
             logger.error("Error while loading library content", error=e)
             raise e
-
         missing_fields = StoredLibrary.REQUIRED_FIELDS - set(library_data.keys())
 
         if missing_fields:
@@ -170,7 +262,7 @@ class StoredLibrary(LibraryMixin):
             outdated_library.delete()
 
         objects_meta = {
-            key: (1 if key == "framework" else len(value))
+            key: (1 if key in ["framework", "requirement_mapping_set"] else len(value))
             for key, value in library_data["objects"].items()
         }
 
@@ -192,6 +284,7 @@ class StoredLibrary(LibraryMixin):
             copyright=library_data.get("copyright"),
             provider=library_data.get("provider"),
             packager=library_data.get("packager"),
+            translations=library_data.get("translations", {}),
             objects_meta=objects_meta,
             dependencies=dependencies,
             is_loaded=is_loaded,
@@ -206,6 +299,7 @@ class StoredLibrary(LibraryMixin):
     ) -> "StoredLibrary | None":
         with open(fname, "rb") as f:
             library_content = f.read()
+
         return StoredLibrary.store_library_content(library_content, builtin)
 
     def load(self) -> Union[str, None]:
@@ -314,6 +408,7 @@ class LibraryUpdater:
             ("ref_id", self.new_library.ref_id),  # Should we even update the ref_id ?
             ("description", self.new_library.description),
             ("annotation", self.new_library.annotation),
+            ("translations", self.new_library.translations),
             ("copyright", self.new_library.copyright),
             ("objects_meta", self.new_library.objects_meta),
         ]:
@@ -408,16 +503,17 @@ class LibraryUpdater:
                 requirement_node_dict["order_id"] = order_id
                 order_id += 1
 
-                new_requirement_node, created = (
-                    RequirementNode.objects.update_or_create(
-                        urn=requirement_node["urn"].lower(),
-                        defaults=requirement_node_dict,
-                        create_defaults={
-                            **referential_object_dict,
-                            **requirement_node_dict,
-                            "framework": new_framework,
-                        },
-                    )
+                (
+                    new_requirement_node,
+                    created,
+                ) = RequirementNode.objects.update_or_create(
+                    urn=requirement_node["urn"].lower(),
+                    defaults=requirement_node_dict,
+                    create_defaults={
+                        **referential_object_dict,
+                        **requirement_node_dict,
+                        "framework": new_framework,
+                    },
                 )
 
                 if created:
@@ -426,7 +522,24 @@ class LibraryUpdater:
                             compliance_assessment=compliance_assessment,
                             requirement=new_requirement_node,
                             folder=compliance_assessment.project.folder,
+                            answer=transform_question_to_answer(
+                                new_requirement_node.question
+                            )
+                            if new_requirement_node.question
+                            else {},
                         )
+                else:
+                    for ra in RequirementAssessment.objects.filter(
+                        requirement=new_requirement_node
+                    ):
+                        ra.name = new_requirement_node.name
+                        ra.description = new_requirement_node.description
+                        ra.answer = (
+                            transform_question_to_answer(new_requirement_node.question)
+                            if new_requirement_node.question
+                            else {}
+                        )
+                        ra.save()
 
                 for threat_urn in requirement_node_dict.get("threats", []):
                     thread_to_add = objects_tracked.get(threat_urn)
@@ -445,7 +558,7 @@ class LibraryUpdater:
                     )
                     if (
                         reference_control_to_add is None
-                    ):  # I am not 100% this condition is usefull
+                    ):  # I am not 100% this condition is useful
                         reference_control_to_add = ReferenceControl.objects.filter(
                             urn=reference_control_urn.lower()
                         ).first()  # No locale support
@@ -510,21 +623,26 @@ class LoadedLibrary(LibraryMixin):
     def _objects(self):
         res = {}
         if self.frameworks.count() > 0:
-            res["framework"] = model_to_dict(self.frameworks.first())
+            res["framework"] = update_translations_in_object(
+                model_to_dict(self.frameworks.first())
+            )
             res["framework"].update(self.frameworks.first().library_entry)
         if self.threats.count() > 0:
-            res["threats"] = [model_to_dict(threat) for threat in self.threats.all()]
+            res["threats"] = [
+                update_translations_in_object(model_to_dict(threat))
+                for threat in self.threats.all()
+            ]
         if self.reference_controls.count() > 0:
             res["reference_controls"] = [
-                model_to_dict(reference_control)
+                update_translations_in_object(model_to_dict(reference_control))
                 for reference_control in self.reference_controls.all()
             ]
         if self.risk_matrices.count() > 0:
             matrix = self.risk_matrices.first()
-            res["risk_matrix"] = model_to_dict(matrix)
-            res["risk_matrix"]["probability"] = matrix.probability
-            res["risk_matrix"]["impact"] = matrix.impact
-            res["risk_matrix"]["risk"] = matrix.risk
+            res["risk_matrix"] = update_translations_in_object(model_to_dict(matrix))
+            res["risk_matrix"]["probability"] = update_translations(matrix.probability)
+            res["risk_matrix"]["impact"] = update_translations(matrix.impact)
+            res["risk_matrix"]["risk"] = update_translations(matrix.risk)
             res["risk_matrix"]["grid"] = matrix.grid
             res["strength_of_knowledge"] = matrix.strength_of_knowledge
             res["risk_matrix"] = [res["risk_matrix"]]
@@ -570,7 +688,7 @@ class LoadedLibrary(LibraryMixin):
         )
 
 
-class Threat(ReferentialObjectMixin, PublishInRootFolderMixin):
+class Threat(ReferentialObjectMixin, I18nObjectMixin, PublishInRootFolderMixin):
     library = models.ForeignKey(
         LoadedLibrary,
         on_delete=models.CASCADE,
@@ -601,12 +719,21 @@ class Threat(ReferentialObjectMixin, PublishInRootFolderMixin):
         return self.name
 
 
-class ReferenceControl(ReferentialObjectMixin):
+class ReferenceControl(ReferentialObjectMixin, I18nObjectMixin):
     CATEGORY = [
         ("policy", _("Policy")),
         ("process", _("Process")),
         ("technical", _("Technical")),
         ("physical", _("Physical")),
+    ]
+
+    CSF_FUNCTION = [
+        ("govern", _("Govern")),
+        ("identify", _("Identify")),
+        ("protect", _("Protect")),
+        ("detect", _("Detect")),
+        ("respond", _("Respond")),
+        ("recover", _("Recover")),
     ]
 
     library = models.ForeignKey(
@@ -623,6 +750,14 @@ class ReferenceControl(ReferentialObjectMixin):
         blank=True,
         choices=CATEGORY,
         verbose_name=_("Category"),
+    )
+
+    csf_function = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=CSF_FUNCTION,
+        verbose_name=_("CSF Function"),
     )
 
     typical_evidence = models.JSONField(
@@ -658,7 +793,7 @@ class ReferenceControl(ReferentialObjectMixin):
             )
 
 
-class RiskMatrix(ReferentialObjectMixin):
+class RiskMatrix(ReferentialObjectMixin, I18nObjectMixin):
     library = models.ForeignKey(
         LoadedLibrary,
         on_delete=models.CASCADE,
@@ -701,6 +836,9 @@ class RiskMatrix(ReferentialObjectMixin):
     def parse_json(self) -> dict:
         return json.loads(self.json_definition)
 
+    def parse_json_translated(self) -> dict:
+        return update_translations_in_object(json.loads(self.json_definition))
+
     @property
     def grid(self) -> list:
         risk_matrix = self.parse_json()
@@ -736,11 +874,15 @@ class RiskMatrix(ReferentialObjectMixin):
 
         return res
 
+    @property
+    def get_json_translated(self):
+        return update_translations_as_string(self.json_definition, "fr")  # Why "fr" ?
+
     def __str__(self) -> str:
-        return self.name
+        return self.get_name_translated
 
 
-class Framework(ReferentialObjectMixin):
+class Framework(ReferentialObjectMixin, I18nObjectMixin):
     min_score = models.IntegerField(default=0, verbose_name=_("Minimum score"))
     max_score = models.IntegerField(default=100, verbose_name=_("Maximum score"))
     scores_definition = models.JSONField(
@@ -778,6 +920,18 @@ class Framework(ReferentialObjectMixin):
 
         return res
 
+    @property
+    def reference_controls(self):
+        _reference_controls = ReferenceControl.objects.filter(
+            requirements__framework=self
+        ).distinct()
+        reference_controls = []
+        for control in _reference_controls:
+            reference_controls.append(
+                {"str": control.display_long, "urn": control.urn, "id": control.id}
+            )
+        return reference_controls
+
     def get_requirement_nodes(self):
         # Prefetch related objects if they exist to reduce database queries.
         # Adjust prefetch_related paths according to your model relationships.
@@ -802,8 +956,11 @@ class Framework(ReferentialObjectMixin):
             ]
         return node_dict
 
+    def __str__(self) -> str:
+        return f"{self.provider} - {self.name}"
 
-class RequirementNode(ReferentialObjectMixin):
+
+class RequirementNode(ReferentialObjectMixin, I18nObjectMixin):
     threats = models.ManyToManyField(
         "Threat",
         blank=True,
@@ -825,7 +982,7 @@ class RequirementNode(ReferentialObjectMixin):
         related_name="requirement_nodes",
     )
     parent_urn = models.CharField(
-        max_length=100, null=True, blank=True, verbose_name=_("Parent URN")
+        max_length=255, null=True, blank=True, verbose_name=_("Parent URN")
     )
     order_id = models.IntegerField(null=True, verbose_name=_("Order ID"))
     implementation_groups = models.JSONField(
@@ -835,10 +992,114 @@ class RequirementNode(ReferentialObjectMixin):
     typical_evidence = models.TextField(
         null=True, blank=True, verbose_name=_("Typical evidence")
     )
+    question = models.JSONField(blank=True, null=True, verbose_name=_("Question"))
 
     class Meta:
         verbose_name = _("RequirementNode")
         verbose_name_plural = _("RequirementNodes")
+
+
+class RequirementMappingSet(ReferentialObjectMixin):
+    library = models.ForeignKey(
+        LoadedLibrary,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="requirement_mapping_sets",
+    )
+
+    source_framework = models.ForeignKey(
+        Framework,
+        on_delete=models.CASCADE,
+        verbose_name=_("Source framework"),
+        related_name="source_framework",
+    )
+    target_framework = models.ForeignKey(
+        Framework,
+        on_delete=models.CASCADE,
+        verbose_name=_("Target framework"),
+        related_name="target_framework",
+    )
+
+    def save(self, *args, **kwargs) -> None:
+        if self.source_framework == self.target_framework:
+            raise ValidationError(_("Source and related frameworks must be different"))
+        return super().save(*args, **kwargs)
+
+
+class RequirementMapping(models.Model):
+    class Coverage(models.TextChoices):
+        FULL = "full", _("Full")
+        PARTIAL = "partial", _("Partial")
+        NOT_RELATED = "not_related", _("Not related")
+
+    class Relationship(models.TextChoices):
+        SUBSET = "subset", _("Subset")
+        INTERSECT = "intersect", _("Intersect")
+        EQUAL = "equal", _("Equal")
+        SUPERSET = "superset", _("Superset")
+        NOT_RELATED = "not_related", _("Not related")
+
+    class Rationale(models.TextChoices):
+        SYNTACTIC = "syntactic", _("Syntactic")
+        SEMANTIC = "semantic", _("Semantic")
+        FUNCTIONAL = "functional", _("Functional")
+
+    FULL_COVERAGE_RELATIONSHIPS = [
+        Relationship.EQUAL,
+        Relationship.SUPERSET,
+    ]
+
+    PARTIAL_COVERAGE_RELATIONSHIPS = [
+        Relationship.INTERSECT,
+        Relationship.SUBSET,
+    ]
+
+    mapping_set = models.ForeignKey(
+        RequirementMappingSet,
+        on_delete=models.CASCADE,
+        verbose_name=_("Mapping set"),
+        related_name="mappings",
+    )
+    target_requirement = models.ForeignKey(
+        RequirementNode,
+        on_delete=models.CASCADE,
+        verbose_name=_("Target requirement"),
+        related_name="target_requirement",
+    )
+    relationship = models.CharField(
+        max_length=20,
+        choices=Relationship.choices,
+        default=Relationship.NOT_RELATED,
+        verbose_name=_("Relationship"),
+    )
+    rationale = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=Rationale.choices,
+        verbose_name=_("Rationale"),
+    )
+    source_requirement = models.ForeignKey(
+        RequirementNode,
+        on_delete=models.CASCADE,
+        verbose_name=_("Source requirement"),
+        related_name="source_requirement",
+    )
+    strength_of_relationship = models.PositiveSmallIntegerField(
+        null=True,
+        verbose_name=_("Strength of relationship"),
+        validators=[MaxValueValidator(10)],
+    )
+    annotation = models.TextField(null=True, blank=True, verbose_name=_("Annotation"))
+
+    @property
+    def coverage(self) -> str:
+        if self.relationship == RequirementMapping.Relationship.NOT_RELATED:
+            return RequirementMapping.Coverage.NOT_RELATED
+        if self.relationship in self.FULL_COVERAGE_RELATIONSHIPS:
+            return RequirementMapping.Coverage.FULL
+        return RequirementMapping.Coverage.PARTIAL
 
 
 ########################### Domain objects #########################
@@ -953,6 +1214,7 @@ class Evidence(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin):
     link = models.URLField(
         blank=True,
         null=True,
+        max_length=2048,
         help_text=_("Link to the evidence (eg. Jira ticket, etc.)"),
         verbose_name=_("Link"),
     )
@@ -974,14 +1236,30 @@ class Evidence(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin):
     def filename(self):
         return os.path.basename(self.attachment.name)
 
+    def get_size(self):
+        if not self.attachment:
+            return None
+        # get the attachment size with the correct unit
+        size = self.attachment.size
+        if size < 1024:
+            return f"{size} B"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        else:
+            return f"{size / 1024 / 1024:.1f} MB"
+
 
 class AppliedControl(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin):
     class Status(models.TextChoices):
-        PLANNED = "planned", _("Planned")
+        TO_DO = "to_do", _("To do")
+        IN_PROGRESS = "in_progress", _("In progress")
+        ON_HOLD = "on_hold", _("On hold")
         ACTIVE = "active", _("Active")
-        INACTIVE = "inactive", _("Inactive")
+        DEPRECATED = "deprecated", _("Deprecated")
+        UNDEFINED = "--", _("Undefined")
 
     CATEGORY = ReferenceControl.CATEGORY
+    CSF_FUNCTION = ReferenceControl.CSF_FUNCTION
 
     EFFORT = [
         ("S", _("Small")),
@@ -1012,12 +1290,31 @@ class AppliedControl(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin
         blank=True,
         verbose_name=_("Category"),
     )
-    status = models.CharField(
+    csf_function = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=CSF_FUNCTION,
         null=True,
         blank=True,
+        verbose_name=_("CSF Function"),
+    )
+    status = models.CharField(  # Should this field be nullable since there is a default value ?
+        max_length=20,
+        choices=Status.choices,
+        default=Status.UNDEFINED,
+        blank=True,
         verbose_name=_("Status"),
+    )
+    owner = models.ManyToManyField(
+        User,
+        blank=True,
+        verbose_name=_("Owner"),
+        related_name="applied_controls",
+    )
+    start_date = models.DateField(
+        blank=True,
+        null=True,
+        help_text=_("Start date (useful for timeline)"),
+        verbose_name=_("Start date"),
     )
     eta = models.DateField(
         blank=True,
@@ -1034,7 +1331,7 @@ class AppliedControl(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin
     link = models.CharField(
         null=True,
         blank=True,
-        max_length=1000,
+        max_length=2048,
         help_text=_("External url for action follow-up (eg. Jira ticket)"),
         verbose_name=_("Link"),
     )
@@ -1046,6 +1343,11 @@ class AppliedControl(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin
         help_text=_("Relative effort of the measure (using T-Shirt sizing)"),
         verbose_name=_("Effort"),
     )
+    cost = models.FloatField(
+        null=True,
+        help_text=_("Cost of the measure (using globally-chosen currency)"),
+        verbose_name=_("Cost"),
+    )
 
     fields_to_check = ["name"]
 
@@ -1056,6 +1358,8 @@ class AppliedControl(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin
     def save(self, *args, **kwargs):
         if self.reference_control and self.category is None:
             self.category = self.reference_control.category
+        if self.reference_control and self.csf_function is None:
+            self.csf_function = self.reference_control.csf_function
         super(AppliedControl, self).save(*args, **kwargs)
 
     @property
@@ -1131,10 +1435,34 @@ class Policy(AppliedControl):
         super(Policy, self).save(*args, **kwargs)
 
 
+class Vulnerability(NameDescriptionMixin, FolderMixin, PublishInRootFolderMixin):
+    class Status(models.TextChoices):
+        UNDEFINED = "--", _("Undefined")
+        POTENTIAL = "potential", _("Potential")
+        EXPLOITABLE = "exploitable", _("Exploitable")
+        MITIGATED = "mitigated", _("Mitigated")
+        FIXED = "fixed", _("Fixed")
+
+    ref_id = models.CharField(
+        max_length=100, blank=True, verbose_name=_("Reference ID")
+    )
+    status = models.CharField(
+        max_length=100,
+        choices=Status.choices,
+        default=Status.UNDEFINED,
+        verbose_name=_("Status"),
+    )
+    severity = models.IntegerField(
+        default=-1,
+        verbose_name=_("Severity"),
+        help_text=_("The severity of the vulnerability"),
+    )
+
+
 ########################### Secondary objects #########################
 
 
-class Assessment(NameDescriptionMixin):
+class Assessment(NameDescriptionMixin, ETADueDateMixin, FolderMixin):
     class Status(models.TextChoices):
         PLANNED = "planned", _("Planned")
         IN_PROGRESS = "in_progress", _("In progress")
@@ -1143,7 +1471,7 @@ class Assessment(NameDescriptionMixin):
         DEPRECATED = "deprecated", _("Deprecated")
 
     project = models.ForeignKey(
-        "Project", on_delete=models.CASCADE, verbose_name=_("Project")
+        Project, on_delete=models.CASCADE, verbose_name=_("Project")
     )
     version = models.CharField(
         max_length=100,
@@ -1173,23 +1501,17 @@ class Assessment(NameDescriptionMixin):
         verbose_name=_("Reviewers"),
         related_name="%(class)s_reviewers",
     )
-    eta = models.DateField(
-        null=True,
-        blank=True,
-        help_text=_("Estimated time of arrival"),
-        verbose_name=_("ETA"),
-    )
-    due_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text=_("Due date"),
-        verbose_name=_("Due date"),
-    )
+    observation = models.TextField(null=True, blank=True, verbose_name=_("Observation"))
 
     fields_to_check = ["name", "version"]
 
     class Meta:
         abstract = True
+
+    def save(self, *args, **kwargs) -> None:
+        if not self.folder or self.folder == Folder.get_root_folder():
+            self.folder = self.project.folder
+        return super().save(*args, **kwargs)
 
 
 class RiskAssessment(Assessment):
@@ -1205,7 +1527,7 @@ class RiskAssessment(Assessment):
         verbose_name_plural = _("Risk assessments")
 
     def __str__(self) -> str:
-        return f"{self.project}/{self.name} - {self.version}"
+        return f"{self.name} - {self.version}"
 
     @property
     def path_display(self) -> str:
@@ -1410,6 +1732,19 @@ class RiskAssessment(Assessment):
                     }
                 )
 
+            if not mtg["cost"]:
+                warnings_lst.append(
+                    {
+                        "msg": _(
+                            "{} does not have an estimated cost. This will help you for prioritization"
+                        ).format(mtg["name"]),
+                        "msgid": "appliedControlNoCost",
+                        "link": f"applied-controls/{mtg['id']}",
+                        "obj_type": "appliedcontrol",
+                        "object": {"name": mtg["name"], "id": mtg["id"]},
+                    }
+                )
+
             if not mtg["link"]:
                 info_lst.append(
                     {
@@ -1487,6 +1822,17 @@ class RiskScenario(NameDescriptionMixin):
         ("transfer", _("Transfer")),
     ]
 
+    QUALIFICATIONS = [
+        ("Financial", _("Financial")),
+        ("Legal", _("Legal")),
+        ("Reputation", _("Reputation")),
+        ("Operational", _("Operational")),
+        ("Confidentiality", _("Confidentiality")),
+        ("Integrity", _("Integrity")),
+        ("Availability", _("Availability")),
+        ("Authenticity", _("Authenticity")),
+    ]
+
     DEFAULT_SOK_OPTIONS = {
         -1: {
             "name": _("--"),
@@ -1530,6 +1876,13 @@ class RiskScenario(NameDescriptionMixin):
         help_text=_("Assets impacted by the risk scenario"),
         related_name="risk_scenarios",
     )
+    vulnerabilities = models.ManyToManyField(
+        Vulnerability,
+        verbose_name=_("Vulnerabilities"),
+        blank=True,
+        help_text=_("Vulnerabities exploited by the risk scenario"),
+        related_name="risk_scenarios",
+    )
     applied_controls = models.ManyToManyField(
         AppliedControl,
         verbose_name=_("Applied controls"),
@@ -1551,6 +1904,12 @@ class RiskScenario(NameDescriptionMixin):
         blank=True,
     )
 
+    owner = models.ManyToManyField(
+        User,
+        blank=True,
+        verbose_name=_("Owner"),
+        related_name="risk_scenarios",
+    )
     # current
     current_proba = models.SmallIntegerField(
         default=-1, verbose_name=_("Current probability")
@@ -1588,6 +1947,8 @@ class RiskScenario(NameDescriptionMixin):
         verbose_name=_("Treatment status"),
     )
 
+    qualifications = models.JSONField(default=list, verbose_name=_("Qualifications"))
+
     strength_of_knowledge = models.IntegerField(
         default=-1,
         verbose_name=_("Strength of Knowledge"),
@@ -1613,7 +1974,7 @@ class RiskScenario(NameDescriptionMixin):
     parent_project.short_description = _("Project")
 
     def get_matrix(self):
-        return self.risk_assessment.risk_matrix.parse_json()
+        return self.risk_assessment.risk_matrix.parse_json_translated()
 
     def get_current_risk(self):
         if self.current_level < 0:
@@ -1622,21 +1983,43 @@ class RiskScenario(NameDescriptionMixin):
                 "name": "--",
                 "description": "not rated",
                 "hexcolor": "#A9A9A9",
+                "value": -1,
             }
         risk_matrix = self.get_matrix()
-        return risk_matrix["risk"][self.current_level]
+        current_risk = {
+            **risk_matrix["risk"][self.current_level],
+            "value": self.current_level,
+        }
+        update_translations_in_object(current_risk)
+        return current_risk
 
     def get_current_impact(self):
         if self.current_impact < 0:
-            return {"abbreviation": "--", "name": "--", "description": "not rated"}
+            return {
+                "abbreviation": "--",
+                "name": "--",
+                "description": "not rated",
+                "value": -1,
+            }
         risk_matrix = self.get_matrix()
-        return risk_matrix["impact"][self.current_impact]
+        return {
+            **risk_matrix["impact"][self.current_impact],
+            "value": self.current_impact,
+        }
 
     def get_current_proba(self):
         if self.current_proba < 0:
-            return {"abbreviation": "--", "name": "--", "description": "not rated"}
+            return {
+                "abbreviation": "--",
+                "name": "--",
+                "description": "not rated",
+                "value": -1,
+            }
         risk_matrix = self.get_matrix()
-        return risk_matrix["probability"][self.current_proba]
+        return {
+            **risk_matrix["probability"][self.current_proba],
+            "value": self.current_proba,
+        }
 
     def get_residual_risk(self):
         if self.residual_level < 0:
@@ -1645,21 +2028,43 @@ class RiskScenario(NameDescriptionMixin):
                 "name": "--",
                 "description": "not rated",
                 "hexcolor": "#A9A9A9",
+                "value": -1,
             }
         risk_matrix = self.get_matrix()
-        return risk_matrix["risk"][self.residual_level]
+        residual_risk = {
+            **risk_matrix["risk"][self.residual_level],
+            "value": self.residual_level,
+        }
+        update_translations_in_object(residual_risk)
+        return residual_risk
 
     def get_residual_impact(self):
         if self.residual_impact < 0:
-            return {"abbreviation": "--", "name": "--", "description": "not rated"}
+            return {
+                "abbreviation": "--",
+                "name": "--",
+                "description": "not rated",
+                "value": -1,
+            }
         risk_matrix = self.get_matrix()
-        return risk_matrix["impact"][self.residual_impact]
+        return {
+            **risk_matrix["impact"][self.residual_impact],
+            "value": self.residual_impact,
+        }
 
     def get_residual_proba(self):
         if self.residual_proba < 0:
-            return {"abbreviation": "--", "name": "--", "description": "not rated"}
+            return {
+                "abbreviation": "--",
+                "name": "--",
+                "description": "not rated",
+                "value": -1,
+            }
         risk_matrix = self.get_matrix()
-        return risk_matrix["probability"][self.residual_proba]
+        return {
+            **risk_matrix["probability"][self.residual_proba],
+            "value": self.residual_proba,
+        }
 
     def get_strength_of_knowledge(self):
         if self.strength_of_knowledge < 0:
@@ -1695,21 +2100,8 @@ class RiskScenario(NameDescriptionMixin):
 
 
 class ComplianceAssessment(Assessment):
-    class Result(models.TextChoices):
-        COMPLIANT = "compliant", _("Compliant")
-        NON_COMPLIANT_MINOR = "non_compliant_minor", _("Non compliant (minor)")
-        NON_COMPLIANT_MAJOR = "non_compliant_major", _("Non compliant (major)")
-        NOT_APPLICABLE = "not_applicable", _("Not applicable")
-
     framework = models.ForeignKey(
         Framework, on_delete=models.CASCADE, verbose_name=_("Framework")
-    )
-    result = models.CharField(
-        blank=True,
-        null=True,
-        max_length=100,
-        choices=Result.choices,
-        verbose_name=_("Result"),
     )
     selected_implementation_groups = models.JSONField(
         blank=True, null=True, verbose_name=_("Selected implementation groups")
@@ -1732,12 +2124,47 @@ class ComplianceAssessment(Assessment):
             self.scores_definition = self.framework.scores_definition
         super().save(*args, **kwargs)
 
+    def create_requirement_assessments(
+        self, baseline: Self | None = None
+    ) -> list["RequirementAssessment"]:
+        requirements = RequirementNode.objects.filter(framework=self.framework)
+        requirement_assessments = []
+        for requirement in requirements:
+            requirement_assessment = RequirementAssessment.objects.create(
+                compliance_assessment=self,
+                requirement=requirement,
+                folder=Folder.objects.get(id=self.folder.id),
+                answer=transform_question_to_answer(requirement.question)
+                if requirement.question
+                else {},
+            )
+            if baseline and baseline.framework == self.framework:
+                baseline_requirement_assessment = RequirementAssessment.objects.get(
+                    compliance_assessment=baseline, requirement=requirement
+                )
+                requirement_assessment.result = baseline_requirement_assessment.result
+                requirement_assessment.status = baseline_requirement_assessment.status
+                requirement_assessment.score = baseline_requirement_assessment.score
+                requirement_assessment.is_scored = (
+                    baseline_requirement_assessment.is_scored
+                )
+                requirement_assessment.evidences.set(
+                    baseline_requirement_assessment.evidences.all()
+                )
+                requirement_assessment.applied_controls.set(
+                    baseline_requirement_assessment.applied_controls.all()
+                )
+                requirement_assessment.save()
+            requirement_assessments.append(requirement_assessment)
+        return requirement_assessments
+
     def get_global_score(self):
         requirement_assessments_scored = (
             RequirementAssessment.objects.filter(compliance_assessment=self)
             .exclude(score=None)
-            .exclude(status=RequirementAssessment.Status.NOT_APPLICABLE)
+            .exclude(status=RequirementAssessment.Result.NOT_APPLICABLE)
             .exclude(is_scored=False)
+            .exclude(requirement__assessable=False)
         )
         ig = (
             set(self.selected_implementation_groups)
@@ -1837,18 +2264,57 @@ class ComplianceAssessment(Assessment):
             return queries[0].union(*queries[1:]) if queries else base_query.none()
 
         color_map = {
-            "in_progress": "#3b82f6",
-            "non_compliant": "#f87171",
-            "to_do": "#d1d5db",
-            "partially_compliant": "#fde047",
-            "not_applicable": "#000000",
-            "compliant": "#86efac",
+            RequirementAssessment.Result.NOT_ASSESSED: "#d1d5db",
+            RequirementAssessment.Result.NON_COMPLIANT: "#f87171",
+            RequirementAssessment.Result.PARTIALLY_COMPLIANT: "#fde047",
+            RequirementAssessment.Result.COMPLIANT: "#86efac",
+            RequirementAssessment.Result.NOT_APPLICABLE: "#000000",
+            RequirementAssessment.Status.TODO: "#9ca3af",
+            RequirementAssessment.Status.IN_PROGRESS: "#f59e0b",
+            RequirementAssessment.Status.IN_REVIEW: "#3b82f6",
+            RequirementAssessment.Status.DONE: "#86efac",
         }
 
-        compliance_assessments_status = {"values": [], "labels": []}
-        for status in RequirementAssessment.Status:
+        compliance_assessments_result = {"values": [], "labels": []}
+        for result in RequirementAssessment.Result.values:
+            assessable_requirements_filter = {
+                "compliance_assessment": self,
+                "requirement__assessable": True,
+            }
+
             base_query = RequirementAssessment.objects.filter(
-                status=status, compliance_assessment=self, requirement__assessable=True
+                result=result, **assessable_requirements_filter
+            ).distinct()
+
+            if self.selected_implementation_groups:
+                union_query = union_queries(
+                    base_query,
+                    self.selected_implementation_groups,
+                    "requirement__implementation_groups",
+                )
+            else:
+                union_query = base_query
+
+            count = union_query.count()
+            value_entry = {
+                "name": result,
+                "localName": camel_case(result),
+                "value": count,
+                "itemStyle": {"color": color_map[result]},
+            }
+
+            compliance_assessments_result["values"].append(value_entry)
+            compliance_assessments_result["labels"].append(result)
+
+        compliance_assessments_status = {"values": [], "labels": []}
+        for status in RequirementAssessment.Status.values:
+            assessable_requirements_filter = {
+                "compliance_assessment": self,
+                "requirement__assessable": True,
+            }
+
+            base_query = RequirementAssessment.objects.filter(
+                status=status, **assessable_requirements_filter
             ).distinct()
 
             if self.selected_implementation_groups:
@@ -1863,15 +2329,18 @@ class ComplianceAssessment(Assessment):
             count = union_query.count()
             value_entry = {
                 "name": status,
-                "localName": camel_case(status.value),
+                "localName": camel_case(status),
                 "value": count,
                 "itemStyle": {"color": color_map[status]},
             }
 
             compliance_assessments_status["values"].append(value_entry)
-            compliance_assessments_status["labels"].append(status.label)
+            compliance_assessments_status["labels"].append(status)
 
-        return compliance_assessments_status
+        return {
+            "result": compliance_assessments_result,
+            "status": compliance_assessments_status,
+        }
 
     def quality_check(self) -> dict:
         AppliedControl = apps.get_model("core", "AppliedControl")
@@ -1919,13 +2388,13 @@ class ComplianceAssessment(Assessment):
             requirement_assessments.append(ra_dict)
         for requirement_assessment in requirement_assessments:
             if (
-                requirement_assessment["status"] in ("compliant", "partially_compliant")
+                requirement_assessment["result"] in ("compliant", "partially_compliant")
                 and len(requirement_assessment["applied_controls"]) == 0
             ):
                 warnings_lst.append(
                     {
                         "msg": _(
-                            "{}: Requirement assessment status is compliant or partially compliant with no applied control applied"
+                            "{}: Requirement assessment result is compliant or partially compliant with no applied control applied"
                         ).format(requirement_assessment["name"]),
                         "msgid": "requirementAssessmentNoAppliedControl",
                         "link": f"requirement-assessments/{requirement_assessment['id']}",
@@ -1994,13 +2463,77 @@ class ComplianceAssessment(Assessment):
         }
         return findings
 
+    def compute_requirement_assessments_results(
+        self, mapping_set: RequirementMappingSet, source_assessment: Self
+    ) -> list["RequirementAssessment"]:
+        requirement_assessments: list[RequirementAssessment] = []
+        result_order = (
+            RequirementAssessment.Result.NON_COMPLIANT,
+            RequirementAssessment.Result.PARTIALLY_COMPLIANT,
+            RequirementAssessment.Result.COMPLIANT,
+        )
+        for requirement_assessment in self.requirement_assessments.all():
+            mappings = mapping_set.mappings.filter(
+                target_requirement=requirement_assessment.requirement
+            )
+            inferences = []
+            refs = []
+            if mappings.filter(
+                relationship__in=RequirementMapping.FULL_COVERAGE_RELATIONSHIPS
+            ).exists():
+                mappings = mappings.filter(
+                    relationship__in=RequirementMapping.FULL_COVERAGE_RELATIONSHIPS
+                )
+            for mapping in mappings:
+                source_requirement_assessment = RequirementAssessment.objects.get(
+                    compliance_assessment=source_assessment,
+                    requirement=mapping.source_requirement,
+                )
+                inferred_result, inferred_status = requirement_assessment.infer_result(
+                    mapping=mapping,
+                    source_requirement_assessment=source_requirement_assessment,
+                )
+                if inferred_result in result_order:
+                    inferences.append((inferred_result, inferred_status))
+                    refs.append(source_requirement_assessment)
+            if inferences:
+                if len(inferences) == 1:
+                    requirement_assessment.result = inferences[0][0]
+                    if inferences[0][1]:
+                        requirement_assessment.status = inferences[0][1]
+                    ref = refs[0]
+                else:
+                    lowest_result = min(
+                        inferences, key=lambda x: result_order.index(x[0])
+                    )
+                    requirement_assessment.result = lowest_result[0]
+                    if lowest_result[1]:
+                        requirement_assessment.status = lowest_result[1]
+                    ref = refs[inferences.index(lowest_result)]
+                requirement_assessment.mapping_inference = {
+                    "result": requirement_assessment.result,
+                    "source_requirement_assessment": {
+                        "str": str(ref),
+                        "id": str(ref.id),
+                        "coverage": mapping.coverage,
+                    },
+                    # "mappings": [mapping.id for mapping in mappings],
+                }
+                requirement_assessments.append(requirement_assessment)
+        return requirement_assessments
 
-class RequirementAssessment(AbstractBaseModel, FolderMixin):
+
+class RequirementAssessment(AbstractBaseModel, FolderMixin, ETADueDateMixin):
     class Status(models.TextChoices):
         TODO = "to_do", _("To do")
         IN_PROGRESS = "in_progress", _("In progress")
-        NON_COMPLIANT = "non_compliant", _("Non compliant")
+        IN_REVIEW = "in_review", _("In review")
+        DONE = "done", _("Done")
+
+    class Result(models.TextChoices):
+        NOT_ASSESSED = "not_assessed", _("Not assessed")
         PARTIALLY_COMPLIANT = "partially_compliant", _("Partially compliant")
+        NON_COMPLIANT = "non_compliant", _("Non-compliant")
         COMPLIANT = "compliant", _("Compliant")
         NOT_APPLICABLE = "not_applicable", _("Not applicable")
 
@@ -2009,6 +2542,12 @@ class RequirementAssessment(AbstractBaseModel, FolderMixin):
         choices=Status.choices,
         default=Status.TODO,
         verbose_name=_("Status"),
+    )
+    result = models.CharField(
+        max_length=64,
+        choices=Result.choices,
+        verbose_name=_("Result"),
+        default=Result.NOT_ASSESSED,
     )
     score = models.IntegerField(
         blank=True,
@@ -2045,12 +2584,83 @@ class RequirementAssessment(AbstractBaseModel, FolderMixin):
         default=True,
         verbose_name=_("Selected"),
     )
+    mapping_inference = models.JSONField(
+        default=dict,
+        verbose_name=_("Mapping inference"),
+    )
+    answer = models.JSONField(
+        blank=True,
+        null=True,
+        verbose_name=_("Answer"),
+    )
 
     def __str__(self) -> str:
         return self.requirement.display_short
 
     def get_requirement_description(self) -> str:
-        return self.requirement.description
+        return get_referential_translation(
+            {
+                "description": self.requirement.description,
+                "translations": self.requirement.translations,
+            },
+            "description",
+        )
+
+    def infer_result(
+        self, mapping: RequirementMapping, source_requirement_assessment: Self
+    ) -> str | None:
+        if mapping.coverage == RequirementMapping.Coverage.FULL:
+            return (
+                source_requirement_assessment.result,
+                source_requirement_assessment.status,
+            )
+        if mapping.coverage == RequirementMapping.Coverage.PARTIAL:
+            if source_requirement_assessment.result in (
+                RequirementAssessment.Result.COMPLIANT,
+                RequirementAssessment.Result.PARTIALLY_COMPLIANT,
+            ):
+                return (RequirementAssessment.Result.PARTIALLY_COMPLIANT, None)
+            if (
+                source_requirement_assessment.result
+                == RequirementAssessment.Result.NON_COMPLIANT
+            ):
+                return (RequirementAssessment.Result.NON_COMPLIANT, None)
+        return (None, None)
+
+    def create_applied_controls_from_suggestions(self) -> list[AppliedControl]:
+        applied_controls: list[AppliedControl] = []
+        for reference_control in self.requirement.reference_controls.all():
+            try:
+                _name = reference_control.name or reference_control.ref_id
+                applied_control, created = AppliedControl.objects.get_or_create(
+                    name=_name,
+                    folder=self.folder,
+                    reference_control=reference_control,
+                    category=reference_control.category,
+                )
+                if created:
+                    logger.info(
+                        "Successfully created applied control from reference_control",
+                        applied_control=applied_control,
+                        reference_control=reference_control,
+                    )
+                else:
+                    logger.info(
+                        "Applied control already exists, skipping creation and using existing one",
+                        applied_control=applied_control,
+                        reference_control=reference_control,
+                    )
+                applied_controls.append(applied_control)
+            except Exception as e:
+                logger.error(
+                    "An error occurred while creating applied control from reference control",
+                    reference_control=reference_control,
+                    exc_info=e,
+                )
+                continue
+        if applied_controls:
+            self.applied_controls.add(*applied_controls)
+        return applied_controls
 
     class Meta:
         verbose_name = _("Requirement assessment")

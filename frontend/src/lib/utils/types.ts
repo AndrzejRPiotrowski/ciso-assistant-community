@@ -11,6 +11,11 @@ export interface User {
 	date_joined: string;
 }
 
+export interface GlobalSettings {
+	name: string;
+	settings: Record<string, any>;
+}
+
 export interface LoginRequestBody {
 	username: string;
 	password: string;
@@ -21,6 +26,7 @@ export const URL_MODEL = [
 	'projects',
 	'risk-matrices',
 	'risk-assessments',
+	'risk-assessment-duplicate',
 	'threats',
 	'risk-scenarios',
 	'applied-controls',
@@ -38,10 +44,20 @@ export const URL_MODEL = [
 	'requirements',
 	'requirement-assessments',
 	'libraries',
-	'sso-settings'
+	'sso-settings',
+	'requirement-mapping-sets',
+	'entities',
+	'entity-assessments',
+	'solutions',
+	'representatives',
+	'vulnerabilities'
 ] as const;
 
+export const THIRD_PARTY_URL_MODEL = ['compliance-assessments', 'evidences'] as const;
+
 export type urlModel = (typeof URL_MODEL)[number];
+
+export type thirdPartyUrlModel = (typeof THIRD_PARTY_URL_MODEL)[number];
 
 export type ModelInfo = ModelMapEntry;
 
@@ -125,4 +141,9 @@ export interface AppliedControlStatus {
 	localLables: string[];
 	labels: any[];
 	values: any[]; // Set these types later on
+}
+
+export interface CacheLock {
+	promise: Promise<any>;
+	resolve: (_: any) => any;
 }

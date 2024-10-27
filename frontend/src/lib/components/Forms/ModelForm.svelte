@@ -1,35 +1,55 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 
-	import Checkbox from '$lib/components/Forms/Checkbox.svelte';
 	import SuperForm from '$lib/components/Forms/Form.svelte';
 	import TextArea from '$lib/components/Forms/TextArea.svelte';
 	import TextField from '$lib/components/Forms/TextField.svelte';
 
+	import RiskAssessmentForm from './ModelForm/RiskAssessmentForm.svelte';
+	import ProjectForm from './ModelForm/ProjectForm.svelte';
+	import ThreatForm from './ModelForm/ThreatForm.svelte';
+	import RiskScenarioForm from './ModelForm/RiskScenarioForm.svelte';
+	import AppliedControlsPoliciesForm from './ModelForm/AppliedControlPolicyForm.svelte';
+	import VulnerabilitiesForm from './ModelForm/VulnerabilitiesForm.svelte';
+	import RiskAcceptancesForm from './ModelForm/RiskAcceptanceForm.svelte';
+	import ReferenceControlsForm from './ModelForm/ReferenceControlForm.svelte';
+	import EvidencesForm from './ModelForm/EvidenceForm.svelte';
+	import ComplianceAssessmentsForm from './ModelForm/ComplianceAssessmentForm.svelte';
+	import AssetsForm from './ModelForm/AssetForm.svelte';
+	import RequirementAssessmentsForm from './ModelForm/RequirementAssessmentForm.svelte';
+	import EntitiesForm from './ModelForm/EntityForm.svelte';
+	import EntityAssessmentForm from './ModelForm/EntityAssessmentForm.svelte';
+	import SolutionsForm from './ModelForm/SolutionForm.svelte';
+	import RepresentativesForm from './ModelForm/RepresentativeForm.svelte';
+	import FrameworksForm from './ModelForm/FrameworkForm.svelte';
+	import UsersForm from './ModelForm/UserForm.svelte';
+	import SsoSettingsForm from './ModelForm/SsoSettingForm.svelte';
+	import FolderForm from './ModelForm/FolderForm.svelte';
+
 	import AutocompleteSelect from './AutocompleteSelect.svelte';
-	import Select from './Select.svelte';
 
 	import { getOptions } from '$lib/utils/crud';
 	import { modelSchema } from '$lib/utils/schemas';
-	import type { ModelInfo, urlModel } from '$lib/utils/types';
+	import type { ModelInfo, urlModel, CacheLock } from '$lib/utils/types';
 	import type { SuperValidated } from 'sveltekit-superforms';
 	import type { AnyZodObject } from 'zod';
-	import HiddenInput from './HiddenInput.svelte';
-	import FileInput from './FileInput.svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import * as m from '$paraglide/messages.js';
 	import { zod } from 'sveltekit-superforms/adapters';
 	import { getSecureRedirect } from '$lib/utils/helpers';
-	import { Accordion, AccordionItem } from '@skeletonlabs/skeleton';
+	import { createModalCache } from '$lib/utils/stores';
 
 	export let form: SuperValidated<AnyZodObject>;
+	export let invalidateAll = true; // set to false to keep form data using muliple forms on a page
 	export let model: ModelInfo;
-	export let origin = 'default';
+	export let context = 'default';
+	export let caching: boolean = false;
 	export let closeModal = false;
 	export let parent: any;
 	export let suggestions: { [key: string]: any } = {};
 	export let cancelButton = true;
+	export let riskAssessmentDuplication = false;
 
 	const URLModel = model.urlModel as urlModel;
 	export let schema = modelSchema(URLModel);
@@ -46,13 +66,41 @@
 	$: shape = schema.shape || schema._def.schema.shape;
 	let updated_fields = new Set();
 
-	onMount(() => {
-		if (shape.reference_control) {
-			const reference_control_input: HTMLElement | null = document.querySelector(
-				`div.multiselect[role="searchbox"] input`
-			); // The MultiSelect component can't be focused automatically with data-focusindex="0" so we focus manually
-			reference_control_input?.focus();
+	function makeCacheLock(): CacheLock {
+		let resolve: (_: any) => any = (_) => _;
+		const promise = new Promise((res) => {
+			resolve = res;
+		});
+		return { resolve, promise };
+	}
+
+	let cacheLocks = {};
+	$: if (shape)
+		cacheLocks = Object.keys(shape).reduce((acc, field) => {
+			acc[field] = makeCacheLock();
+			return acc;
+		}, {});
+
+	let formDataCache = {};
+	let urlModelFromPage;
+
+	$: if ($page) {
+		urlModelFromPage = `${$page.url}`.replace(/^.*:\/\/[^/]+/, '');
+		createModalCache.setModelName(urlModelFromPage);
+		if (caching) {
+			createModalCache.data[model.urlModel] ??= {};
+			formDataCache = createModalCache.data[model.urlModel];
 		}
+	}
+
+	$: if (caching) {
+		for (const key of Object.keys(cacheLocks)) {
+			cacheLocks[key].resolve(formDataCache[key]);
+		}
+	}
+
+	onDestroy(() => {
+		createModalCache.garbageCollect();
 	});
 </script>
 
@@ -61,10 +109,12 @@
 	dataType={shape.attachment ? 'form' : 'json'}
 	enctype={shape.attachment ? 'multipart/form-data' : 'application/x-www-form-urlencoded'}
 	data={form}
+	{invalidateAll}
 	let:form
 	let:data
 	let:initialData
 	validators={zod(schema)}
+	onUpdated={() => createModalCache.deleteCache(model.urlModel)}
 	{...$$restProps}
 >
 	<input type="hidden" name="urlmodel" value={model.urlModel} />
@@ -80,6 +130,8 @@
 				label: 'auto' // convention for automatic label calculation
 			})}
 			field="reference_control"
+			cacheLock={cacheLocks['reference_control']}
+			bind:cachedValue={formDataCache['reference_control']}
 			label={m.referenceControl()}
 			nullable={true}
 			on:change={async (e) => {
@@ -89,14 +141,14 @@
 						.then((r) => {
 							form.form.update((currentData) => {
 								if (
-									origin === 'edit' &&
+									context === 'edit' &&
 									currentData['reference_control'] === initialData['reference_control'] &&
 									!updated_fields.has('reference_control')
 								) {
 									return currentData; // Keep the current values in the edit form.
 								}
 								updated_fields.add('reference_control');
-								return { ...currentData, category: r.category };
+								return { ...currentData, category: r.category, csf_function: r.csf_function };
 							});
 						});
 				}
@@ -104,573 +156,98 @@
 		/>
 	{/if}
 	{#if shape.name}
-		<TextField {form} field="name" label={m.name()} data-focusindex="0" />
+		<TextField
+			{form}
+			field="name"
+			label={m.name()}
+			cacheLock={cacheLocks['name']}
+			bind:cachedValue={formDataCache['name']}
+			data-focusindex="0"
+		/>
 	{/if}
 	{#if shape.description}
-		<TextArea {form} field="description" label={m.description()} data-focusindex="1" />
+		<TextArea
+			{form}
+			field="description"
+			label={m.description()}
+			cacheLock={cacheLocks['description']}
+			bind:cachedValue={formDataCache['description']}
+			data-focusindex="1"
+		/>
 	{/if}
 	{#if URLModel === 'projects'}
-		<AutocompleteSelect
+		<ProjectForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
+	{:else if URLModel === 'folders'}
+		<FolderForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
+	{:else if URLModel === 'risk-assessments' || URLModel === 'risk-assessment-duplicate'}
+		<RiskAssessmentForm
 			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.folder}
-		/>
-		<TextField {form} field="internal_reference" label={m.internalReference()} />
-		<Select
-			{form}
-			options={model.selectOptions['lc_status']}
-			field="lc_status"
-			label={m.lcStatus()}
-		/>
-	{:else if URLModel === 'risk-assessments'}
-		<AutocompleteSelect
-			{form}
-			options={getOptions({
-				objects: model.foreignKeys['project'],
-				extra_fields: [['folder', 'str']]
-			})}
-			field="project"
-			label={m.project()}
-			hide={initialData.project}
-		/>
-		<TextField {form} field="version" label={m.version()} />
-		<Select {form} options={model.selectOptions['status']} field="status" label={m.status()} />
-		<AutocompleteSelect
-			{form}
-			disabled={object.id}
-			options={getOptions({ objects: model.foreignKeys['risk_matrix'] })}
-			field="risk_matrix"
-			label={m.riskMatrix()}
-			helpText={m.riskAssessmentMatrixHelpText()}
-		/>
-		<AutocompleteSelect
-			{form}
-			multiple
-			options={getOptions({ objects: model.foreignKeys['authors'], label: 'email' })}
-			field="authors"
-			label={m.authors()}
-		/>
-		<AutocompleteSelect
-			{form}
-			multiple
-			options={getOptions({ objects: model.foreignKeys['reviewers'], label: 'email' })}
-			field="reviewers"
-			label={m.reviewers()}
-		/>
-		<TextField type="date" {form} field="eta" label={m.eta()} helpText={m.etaHelpText()} />
-		<TextField
-			type="date"
-			{form}
-			field="due_date"
-			label={m.dueDate()}
-			helpText={m.dueDateHelpText()}
+			{model}
+			{riskAssessmentDuplication}
+			{cacheLocks}
+			{formDataCache}
+			{initialData}
+			{object}
+			{context}
+			{updated_fields}
 		/>
 	{:else if URLModel === 'threats'}
-		<TextField {form} field="ref_id" label={m.ref()} />
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.folder}
-		/>
-		<TextField {form} field="provider" label={m.provider()} />
+		<ThreatForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
 	{:else if URLModel === 'risk-scenarios'}
-		<AutocompleteSelect
-			{form}
-			options={getOptions({
-				objects: model.foreignKeys['risk_assessment'],
-				extra_fields: [['project', 'str']]
-			})}
-			field="risk_assessment"
-			label={m.riskAssessment()}
-			hide={initialData.risk_assessment}
-		/>
-		<AutocompleteSelect
-			{form}
-			multiple
-			options={getOptions({
-				objects: model.foreignKeys['threats'],
-				extra_fields: [['folder', 'str']],
-				label: 'auto' // convention for automatic label calculation
-			})}
-			field="threats"
-			label={m.threats()}
-		/>
+		<RiskScenarioForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
 	{:else if URLModel === 'applied-controls' || URLModel === 'policies'}
-		{#if schema.shape.category}
-			<Select
-				{form}
-				options={model.selectOptions['category']}
-				field="category"
-				label={m.category()}
-			/>
-		{/if}
-		<Select {form} options={model.selectOptions['status']} field="status" label={m.status()} />
-		<AutocompleteSelect
+		<AppliedControlsPoliciesForm
 			{form}
-			multiple
-			options={getOptions({
-				objects: model.foreignKeys['evidences'],
-				extra_fields: [['folder', 'str']]
-			})}
-			field="evidences"
-			label={m.evidences()}
+			{model}
+			{cacheLocks}
+			{formDataCache}
+			{schema}
+			{initialData}
 		/>
-		<TextField type="date" {form} field="eta" label={m.eta()} helpText={m.etaHelpText()} />
-		<TextField
-			type="date"
-			{form}
-			field="expiry_date"
-			label={m.expiryDate()}
-			helpText={m.expiryDateHelpText()}
-		/>
-		<TextField {form} field="link" label={m.link()} helpText={m.linkHelpText()} />
-		<Select
-			{form}
-			options={model.selectOptions['effort']}
-			field="effort"
-			label={m.effort()}
-			helpText={m.effortHelpText()}
-		/>
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.folder}
-		/>
+	{:else if URLModel === 'vulnerabilities'}
+		<VulnerabilitiesForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
 	{:else if URLModel === 'risk-acceptances'}
-		<TextField
+		<RiskAcceptancesForm
 			{form}
-			type="date"
-			field="expiry_date"
-			label={m.expiryDate()}
-			helpText={m.expiryDateHelpText()}
-		/>
-		{#if object.id && $page.data.user.id === object.approver}
-			<TextArea
-				disabled={$page.data.user.id !== object.approver}
-				{form}
-				field="justification"
-				label={m.justification()}
-				helpText={m.riskAcceptanceJusitficationHelpText()}
-			/>
-		{/if}
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.folder}
-		/>
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['approver'], label: 'email' })}
-			field="approver"
-			label={m.approver()}
-			helpText={m.approverHelpText()}
-		/>
-		<AutocompleteSelect
-			{form}
-			options={getOptions({
-				objects: model.foreignKeys['risk_scenarios'],
-				extra_fields: [['project', 'str']]
-			})}
-			field="risk_scenarios"
-			label={m.riskScenarios()}
-			helpText={m.riskAcceptanceRiskScenariosHelpText()}
-			multiple
+			{model}
+			{cacheLocks}
+			{formDataCache}
+			{object}
+			{initialData}
+			{$page}
 		/>
 	{:else if URLModel === 'reference-controls'}
-		<TextField {form} field="ref_id" label={m.ref()} />
-		<Select
-			{form}
-			options={model.selectOptions['category']}
-			field="category"
-			label={m.category()}
-		/>
-		<TextArea {form} field="annotation" label={m.annotation()} />
-		<TextField {form} field="provider" label={m.provider()} />
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.folder}
-		/>
+		<ReferenceControlsForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
 	{:else if URLModel === 'evidences'}
-		<HiddenInput {form} field="applied_controls" />
-		<HiddenInput {form} field="requirement_assessments" />
-		<FileInput
-			{form}
-			allowPaste={true}
-			helpText={object.attachment
-				? `${m.attachmentWarningText()}: ${object.attachment}`
-				: m.attachmentHelpText()}
-			field="attachment"
-			label={m.attachment()}
-		/>
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.applied_controls || initialData.requirement_assessments}
-		/>
-		<TextField {form} field="link" label={m.link()} helpText={m.linkHelpText()} />
+		<EvidencesForm {form} {model} {cacheLocks} {formDataCache} {initialData} {object} />
 	{:else if URLModel === 'compliance-assessments'}
-		<AutocompleteSelect
+		<ComplianceAssessmentsForm
 			{form}
-			options={getOptions({
-				objects: model.foreignKeys['project'],
-				extra_fields: [['folder', 'str']]
-			})}
-			field="project"
-			label={m.project()}
-			hide={initialData.project}
-		/>
-		<TextField {form} field="version" label={m.version()} />
-		<Select {form} options={model.selectOptions['status']} field="status" label={m.status()} />
-		<AutocompleteSelect
-			{form}
-			disabled={object.id}
-			options={getOptions({ objects: model.foreignKeys['framework'] })}
-			field="framework"
-			label={m.framework()}
-			on:change={async (e) => {
-				if (e.detail) {
-					await fetch(`/frameworks/${e.detail}`)
-						.then((r) => r.json())
-						.then((r) => {
-							const implementation_groups = r['implementation_groups_definition'] || [];
-							model.selectOptions['selected_implementation_groups'] = implementation_groups.map(
-								(group) => ({ label: group.name, value: group.ref_id })
-							);
-						});
-				}
-			}}
-		/>
-		{#if model.selectOptions['selected_implementation_groups'] && model.selectOptions['selected_implementation_groups'].length}
-			<AutocompleteSelect
-				multiple
-				translateOptions={false}
-				{form}
-				options={model.selectOptions['selected_implementation_groups']}
-				field="selected_implementation_groups"
-				label={m.selectedImplementationGroups()}
-			/>
-		{/if}
-		<AutocompleteSelect
-			{form}
-			multiple
-			options={getOptions({ objects: model.foreignKeys['authors'], label: 'email' })}
-			field="authors"
-			label={m.authors()}
-		/>
-		<AutocompleteSelect
-			{form}
-			multiple
-			options={getOptions({ objects: model.foreignKeys['reviewers'], label: 'email' })}
-			field="reviewers"
-			label={m.reviewers()}
-		/>
-		<TextField type="date" {form} field="eta" label={m.eta()} helpText={m.etaHelpText()} />
-		<TextField
-			type="date"
-			{form}
-			field="due_date"
-			label={m.dueDate()}
-			helpText={m.dueDateHelpText()}
+			{model}
+			{cacheLocks}
+			{formDataCache}
+			{initialData}
+			{object}
+			{context}
 		/>
 	{:else if URLModel === 'assets'}
-		<TextArea {form} field="business_value" label={m.businessValue()} />
-		<AutocompleteSelect
-			{form}
-			options={getOptions({ objects: model.foreignKeys['folder'] })}
-			field="folder"
-			label={m.domain()}
-			hide={initialData.folder}
-		/>
-		<Select {form} options={model.selectOptions['type']} field="type" label="Type" />
-		<AutocompleteSelect
-			disabled={data.type === 'PR'}
-			multiple
-			{form}
-			options={getOptions({ objects: model.foreignKeys['parent_assets'], self: object })}
-			field="parent_assets"
-			label={m.parentAssets()}
-		/>
+		<AssetsForm {form} {model} {cacheLocks} {formDataCache} {initialData} {object} {data} />
 	{:else if URLModel === 'requirement-assessments'}
-		<Select {form} options={model.selectOptions['status']} field="status" label={m.status()} />
-		<TextArea {form} field="observation" label={m.observation()} />
-		<HiddenInput {form} field="folder" />
-		<HiddenInput {form} field="requirement" />
-		<HiddenInput {form} field="compliance_assessment" />
+		<RequirementAssessmentsForm {form} {model} {cacheLocks} {formDataCache} />
+	{:else if URLModel === 'entities'}
+		<EntitiesForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
+	{:else if URLModel === 'entity-assessments'}
+		<EntityAssessmentForm {form} {model} {cacheLocks} {formDataCache} {initialData} {data} />
+	{:else if URLModel === 'solutions'}
+		<SolutionsForm {form} {model} {cacheLocks} {formDataCache} {initialData} />
+	{:else if URLModel === 'representatives'}
+		<RepresentativesForm {form} {model} {cacheLocks} {formDataCache} {data} />
+	{:else if URLModel === 'frameworks'}
+		<FrameworksForm {form} {model} {cacheLocks} {formDataCache} />
 	{:else if URLModel === 'users'}
-		<TextField {form} field="email" label={m.email()} data-focusindex="2" />
-		{#if shape.first_name && shape.last_name}
-			<TextField {form} field="first_name" label={m.firstName()} />
-			<TextField {form} field="last_name" label={m.lastName()} />
-		{/if}
-		{#if shape.user_groups}
-			<AutocompleteSelect
-				{form}
-				multiple
-				options={getOptions({ objects: model.foreignKeys['user_groups'] })}
-				field="user_groups"
-				label={m.userGroups()}
-			/>
-		{/if}
-		{#if shape.is_active}
-			<Checkbox {form} field="is_active" label={m.isActive()} helpText={m.isActiveHelpText()} />
-		{/if}
+		<UsersForm {form} {model} {cacheLocks} {formDataCache} {shape} />
 	{:else if URLModel === 'sso-settings'}
-		<Accordion>
-			<Checkbox {form} field="is_enabled" label={m.enableSSO()} />
-			<AutocompleteSelect
-				{form}
-				hide={model.selectOptions['provider'].length < 2}
-				field="provider"
-				options={model.selectOptions['provider']}
-				label={m.provider()}
-				disabled={!data.is_enabled}
-			/>
-			{#if data.provider !== 'saml'}
-				<AccordionItem open>
-					<svelte:fragment slot="summary">{m.IdPConfiguration()}</svelte:fragment>
-					<svelte:fragment slot="content">
-						<TextField {form} field="provider_name" label={m.name()} disabled={!data.is_enabled} />
-						<TextField
-							hidden
-							{form}
-							field="provider_id"
-							label={m.providerID()}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							{form}
-							field="client_id"
-							label={m.clientID()}
-							helpText={m.clientIDHelpText()}
-							disabled={!data.is_enabled}
-						/>
-						{#if data.provider !== 'saml'}
-							<TextField
-								{form}
-								field="secret"
-								label={m.secret()}
-								helpText={m.secretHelpText()}
-								disabled={!data.is_enabled}
-							/>
-							<TextField {form} field="key" label={m.key()} disabled={!data.is_enabled} />
-						{/if}
-					</svelte:fragment>
-				</AccordionItem>
-			{/if}
-			{#if data.provider === 'saml'}
-				<AccordionItem open>
-					<svelte:fragment slot="summary"
-						><span class="font-semibold">{m.SAMLIdPConfiguration()}</span></svelte:fragment
-					>
-					<svelte:fragment slot="content">
-						<TextField
-							{form}
-							field="idp_entity_id"
-							label={m.IdPEntityID()}
-							required={data.provider === 'saml'}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							{form}
-							field="metadata_url"
-							label={m.metadataURL()}
-							required={data.provider === 'saml'}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							hidden
-							{form}
-							field="sso_url"
-							label={m.SSOURL()}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							hidden
-							{form}
-							field="slo_url"
-							label={m.SLOURL()}
-							disabled={!data.is_enabled}
-						/>
-						<TextArea
-							hidden
-							{form}
-							field="x509cert"
-							label={m.x509Cert()}
-							disabled={!data.is_enabled}
-						/>
-					</svelte:fragment>
-				</AccordionItem>
-
-				<AccordionItem>
-					<svelte:fragment slot="summary"
-						><span class="font-semibold">{m.SPConfiguration()}</span></svelte:fragment
-					>
-					<svelte:fragment slot="content">
-						<TextField
-							{form}
-							field="sp_entity_id"
-							label={m.SPEntityID()}
-							required={data.provider === 'saml'}
-							disabled={!data.is_enabled}
-						/>
-					</svelte:fragment>
-				</AccordionItem>
-
-				<AccordionItem
-					><svelte:fragment slot="summary"
-						><span class="font-semibold">{m.advancedSettings()}</span></svelte:fragment
-					>
-					<svelte:fragment slot="content">
-						<TextField
-							{form}
-							field="attribute_mapping_uid"
-							label={m.attributeMappingUID()}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							{form}
-							field="attribute_mapping_email_verified"
-							label={m.attributeMappingEmailVerified()}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							{form}
-							field="attribute_mapping_email"
-							label={m.attributeMappingEmail()}
-							disabled={!data.is_enabled}
-						/>
-
-						<Checkbox
-							{form}
-							field="allow_repeat_attribute_name"
-							label={m.allowRepeatAttributeName()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="allow_single_label_domains"
-							label={m.allowSingleLabelDomains()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="authn_request_signed"
-							hidden
-							label={m.authnRequestSigned()}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							{form}
-							field="digest_algorithm"
-							hidden
-							label={m.digestAlgorithm()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="logout_request_signed"
-							hidden
-							label={m.logoutRequestSigned()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="logout_response_signed"
-							hidden
-							label={m.logoutResponseSigned()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="metadata_signed"
-							hidden
-							label={m.metadataSigned()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="name_id_encrypted"
-							hidden
-							label={m.nameIDEncrypted()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							hidden
-							field="reject_deprecated_algorithm"
-							label={m.rejectDeprecatedAlgorithm()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="reject_idp_initiated_sso"
-							label={m.rejectIdPInitiatedSSO()}
-							disabled={!data.is_enabled}
-						/>
-						<TextField
-							{form}
-							field="signature_algorithm"
-							hidden
-							label={m.signatureAlgorithm()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="want_assertion_encrypted"
-							hidden
-							label={m.wantAssertionEncrypted()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="want_assertion_signed"
-							hidden
-							label={m.wantAssertionSigned()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="want_attribute_statement"
-							label={m.wantAttributeStatement()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="want_message_signed"
-							hidden
-							label={m.wantMessageSigned()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="want_name_id"
-							label={m.wantNameID()}
-							disabled={!data.is_enabled}
-						/>
-						<Checkbox
-							{form}
-							field="want_name_id_encrypted"
-							hidden
-							label={m.wantNameIDEncrypted()}
-							disabled={!data.is_enabled}
-						/>
-					</svelte:fragment>
-				</AccordionItem>
-			{/if}
-		</Accordion>
+		<SsoSettingsForm {form} {model} {cacheLocks} {formDataCache} {data} />
 	{/if}
 	<div class="flex flex-row justify-between space-x-4">
 		{#if closeModal}
@@ -678,12 +255,18 @@
 				class="btn bg-gray-400 text-white font-semibold w-full"
 				data-testid="cancel-button"
 				type="button"
-				on:click={parent.onClose}>{m.cancel()}</button
+				on:click={(event) => {
+					parent.onClose(event);
+					createModalCache.deleteCache(model.urlModel);
+				}}>{m.cancel()}</button
 			>
 			<button
 				class="btn variant-filled-primary font-semibold w-full"
 				data-testid="save-button"
-				type="submit">{m.save()}</button
+				type="submit"
+				on:click={(event) => {
+					createModalCache.deleteCache(model.urlModel);
+				}}>{m.save()}</button
 			>
 		{:else}
 			{#if cancelButton}

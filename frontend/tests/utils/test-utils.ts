@@ -212,6 +212,7 @@ export const test = base.extend<Fixtures>({
 			{ name: 'name', type: type.TEXT },
 			{ name: 'description', type: type.TEXT },
 			{ name: 'category', type: type.SELECT },
+			{ name: 'csf_function', type: type.SELECT },
 			{ name: 'provider', type: type.TEXT },
 			{ name: 'folder', type: type.SELECT_AUTOCOMPLETE }
 		]);
@@ -223,11 +224,13 @@ export const test = base.extend<Fixtures>({
 			{ name: 'name', type: type.TEXT },
 			{ name: 'description', type: type.TEXT },
 			{ name: 'category', type: type.SELECT },
+			{ name: 'csf_function', type: type.SELECT },
 			{ name: 'status', type: type.SELECT },
 			{ name: 'eta', type: type.DATE },
 			{ name: 'expiry_date', type: type.DATE },
 			{ name: 'link', type: type.TEXT },
 			{ name: 'effort', type: type.SELECT },
+			{ name: 'cost', type: type.NUMBER },
 			{ name: 'folder', type: type.SELECT_AUTOCOMPLETE },
 			{ name: 'reference_control', type: type.SELECT_AUTOCOMPLETE }
 		]);
@@ -395,7 +398,7 @@ export class TestContent {
 					name: '',
 					description: '',
 					business_value: '',
-					type: 'Support'
+					type: 'Supporting'
 					//TODO add parent_assets
 				}
 			},
@@ -419,6 +422,7 @@ export class TestContent {
 					name: vars.referenceControlName,
 					description: vars.description,
 					category: 'Technical',
+					csf_function: 'protect',
 					provider: 'Test provider',
 					folder: vars.folderName
 				},
@@ -426,6 +430,7 @@ export class TestContent {
 					name: '',
 					description: '',
 					category: 'Physical',
+					csf_function: 'detect',
 					provider: ''
 				}
 			},
@@ -436,24 +441,27 @@ export class TestContent {
 					reference_control: {
 						value: 'Global/' + vars.referenceControl.name,
 						category: vars.referenceControl.category,
+						csf_function: vars.referenceControl.csf_function,
 						request: {
 							url: 'reference-controls'
 						}
 					},
 					name: vars.appliedControlName,
 					description: vars.description,
-					status: 'Planned',
+					status: 'To do',
 					eta: '2025-01-01',
 					expiry_date: '2025-05-01',
 					link: 'https://intuitem.com/',
 					effort: 'Large',
 					folder: vars.folderName,
-					category: vars.referenceControl.category
+					category: vars.referenceControl.category,
+					csf_function: vars.referenceControl.csf_function
 				},
 				editParams: {
 					reference_control: {
 						value: 'Global/' + vars.referenceControl2.name,
 						category: vars.referenceControl2.category,
+						csf_function: vars.referenceControl2.csf_function,
 						request: {
 							url: 'reference-controls'
 						}
@@ -465,7 +473,8 @@ export class TestContent {
 					expiry_date: '2026-02-25',
 					link: 'https://intuitem.com/community/',
 					effort: 'Medium',
-					category: vars.referenceControl2.category
+					category: vars.referenceControl2.category,
+					csf_function: vars.referenceControl2.csf_function
 				}
 			},
 			complianceAssessmentsPage: {
@@ -519,7 +528,7 @@ export class TestContent {
 					name: vars.riskAssessmentName,
 					description: vars.description,
 					project: vars.folderName + '/' + vars.projectName,
-					version: '1.4.2',
+					version: vars.riskAssessmentVersion,
 					status: 'Planned',
 					risk_matrix: vars.matrix.displayName
 					// eta: "2025-01-01",
@@ -528,7 +537,7 @@ export class TestContent {
 				editParams: {
 					name: '',
 					description: '',
-					version: '1.4.3'
+					version: vars.riskAssessmentVersion2
 					//TODO add risk_matrix
 					// eta: "2025-12-31",
 					// due_date: "2026-02-25"
@@ -540,7 +549,7 @@ export class TestContent {
 				build: {
 					name: vars.riskScenarioName,
 					description: vars.description,
-					risk_assessment: `${vars.folderName}/${vars.projectName}/${vars.riskAssessmentName}`,
+					risk_assessment: `${vars.folderName}/${vars.projectName}/${vars.riskAssessmentName} - ${vars.riskAssessmentVersion}`,
 					threats: ['Global/' + vars.threat.name, 'Global/' + vars.threat2.name]
 				},
 				editParams: {
@@ -548,11 +557,11 @@ export class TestContent {
 					description: '',
 					treatment: 'Accepted',
 					//TODO add risk_assessment & threats
-					assets: [vars.assetName],
+					assets: [vars.folderName + '/' + vars.assetName],
 					existing_controls: 'Test Existing Controls',
 					current_proba: 'High',
 					current_impact: 'Medium',
-					applied_controls: [vars.appliedControlName],
+					applied_controls: [vars.folderName + '/' + vars.appliedControlName],
 					residual_proba: 'Medium',
 					residual_impact: 'Low',
 					justification: 'Test comments'
@@ -566,7 +575,9 @@ export class TestContent {
 					expiry_date: '2025-01-01',
 					folder: vars.folderName,
 					approver: LoginPage.defaultEmail,
-					risk_scenarios: [`${vars.folderName}/${vars.projectName}/${vars.riskScenarioName}`]
+					risk_scenarios: [
+						`${vars.folderName}/${vars.projectName}/${vars.riskAssessmentName} - ${vars.riskAssessmentVersion}/${vars.riskScenarioName}`
+					]
 				},
 				editParams: {
 					name: '',

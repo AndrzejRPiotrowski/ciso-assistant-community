@@ -1,25 +1,45 @@
 import { env } from '$env/dynamic/public';
 
 export const BASE_API_URL = `${
-	env.hasOwnProperty('PUBLIC_BACKEND_API_URL')
+	Object.hasOwn(env, 'PUBLIC_BACKEND_API_URL')
 		? env.PUBLIC_BACKEND_API_URL
 		: 'http://localhost:8000/api'
 }`;
 
 export const BACKEND_API_EXPOSED_URL = `${
-	env.hasOwnProperty('PUBLIC_BACKEND_API_EXPOSED_URL')
+	Object.hasOwn(env, 'PUBLIC_BACKEND_API_EXPOSED_URL')
 		? env.PUBLIC_BACKEND_API_EXPOSED_URL
 		: BASE_API_URL
 }`;
 
-export const RISK_COLOR_PALETTE: string[] = ['#BBF7D0', '#BEF264', '#FEF08A', '#FBBF24', '#F87171'];
-export const COMPLIANCE_COLOR_MAP = {
-	in_progress: '#3b82f6',
-	non_compliant: '#f87171',
-	to_do: '#d1d5db',
+export const complianceResultColorMap: { [key: string]: string } = {
+	not_assessed: '#d1d5db',
 	partially_compliant: '#fde047',
+	non_compliant: '#f87171',
 	not_applicable: '#000000',
 	compliant: '#86efac'
+};
+
+export const complianceResultTailwindColorMap: { [key: string]: string } = {
+	not_assessed: 'bg-gray-300',
+	partially_compliant: 'bg-yellow-300',
+	non_compliant: 'bg-red-300',
+	not_applicable: 'bg-black text-white',
+	compliant: 'bg-green-300'
+};
+
+export const complianceStatusColorMap = {
+	to_do: '#9ca3af',
+	in_progress: '#f59e0b',
+	in_review: '#3b82f6',
+	done: '#86efac'
+};
+
+export const complianceStatusTailwindColorMap = {
+	to_do: 'bg-gray-400',
+	in_progress: 'bg-amber-500',
+	in_review: 'bg-blue-500',
+	done: 'bg-green-300'
 };
 
 export const MONTH_LIST = [
@@ -48,7 +68,14 @@ export const URN_REGEX =
 export const LOCALE_DISPLAY_MAP = {
 	en: '🇬🇧 English',
 	fr: '🇫🇷 Français',
-	de: '🇩🇪 Deutsch'
+	de: '🇩🇪 Deutsch',
+	es: '🇪🇸 Español',
+	it: '🇮🇹 Italiano',
+	nl: '🇳🇱 Nederlands',
+	pt: '🇵🇹 Português',
+	pl: '🇵🇱 Polski',
+	ro: '🇷🇴 Română',
+	ar: '🇸🇦 العربية'
 };
 
 export const ISO_8601_REGEX =

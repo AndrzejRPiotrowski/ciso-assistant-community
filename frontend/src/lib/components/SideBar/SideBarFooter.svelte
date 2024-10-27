@@ -17,7 +17,10 @@
 		german: m.german(),
 		dutch: m.dutch(),
 		italian: m.italian(),
-		polish: m.polish()
+		polish: m.polish(),
+		romanian: m.romanian(),
+		hindi: m.hindi(),
+		urdu: m.urdu()
 	};
 
 	const modalStore = getModalStore();
@@ -31,7 +34,10 @@
 		nl: 'Nederlands',
 		de: 'Deutsch',
 		it: 'Italiano',
-		pl: 'Polski'
+		pl: 'Polski',
+		ro: 'Română',
+		hi: 'हिंदी',
+		ur: 'اردو'
 	};
 
 	let value = languageTag();
@@ -42,6 +48,7 @@
 		setLanguageTag(value);
 		// sessionStorage.setItem('lang', value);
 		setCookie('ciso_lang', value);
+		window.location.reload();
 	}
 
 	const popupUser: PopupSettings = {
@@ -51,13 +58,12 @@
 	};
 
 	async function modalBuildInfo() {
-		const res = await fetch('/api/build');
-		const { version, build } = await res.json();
+		const res = await fetch('/api/build').then((res) => res.json());
 		const modal: ModalSettings = {
 			type: 'component',
 			component: 'displayJSONModal',
 			title: 'About CISO Assistant',
-			body: JSON.stringify({ version, build })
+			body: JSON.stringify(res)
 		};
 		modalStore.trigger(modal);
 	}
@@ -92,6 +98,9 @@
 		>
 			<a
 				href="/my-profile"
+				on:click={(e) => {
+					window.location.href = e.target.href;
+				}}
 				class="unstyled cursor-pointer flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-100 disabled:text-gray-500 text-gray-800"
 				data-testid="profile-button"><i class="fa-solid fa-address-card mr-2" />{m.myProfile()}</a
 			>
