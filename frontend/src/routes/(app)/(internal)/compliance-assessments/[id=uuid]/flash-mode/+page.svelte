@@ -26,7 +26,7 @@
 	const requirementHashmap = Object.fromEntries(
 		data.requirements.map((requirement) => [requirement.id, requirement])
 	);
-	$: requirement = requirementHashmap[currentRequirementAssessment.requirement];
+	$: requirement = requirementHashmap[currentRequirementAssessment.requirement.id];
 	$: parent = data.requirements.find((req) => req.urn === requirement.parent_urn);
 
 	$: title = requirement.display_short
@@ -68,8 +68,16 @@
 			body: JSON.stringify(formData)
 		});
 	}
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'ArrowRight' || event.key === 'l') {
+			nextItem();
+		} else if (event.key === 'ArrowLeft' || event.key === 'h') {
+			previousItem();
+		}
+	}
 </script>
 
+<svelte:window on:keydown={handleKeydown} />
 <div class="flex flex-col h-full justify-center items-center">
 	<div
 		style="border-color: {color}"

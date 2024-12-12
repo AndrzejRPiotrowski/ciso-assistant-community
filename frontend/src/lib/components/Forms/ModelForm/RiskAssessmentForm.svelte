@@ -10,7 +10,7 @@
 
 	export let form: SuperValidated<any>;
 	export let model: ModelInfo;
-	export let riskAssessmentDuplication: boolean = false;
+	export let duplicate: boolean = false;
 	export let cacheLocks: Record<string, CacheLock> = {};
 	export let formDataCache: Record<string, any> = {};
 	export let initialData: Record<string, any> = {};
@@ -18,6 +18,14 @@
 	// export let context: string = 'default';
 	// export let updated_fields: Set<string> = new Set();
 </script>
+
+<TextField
+	{form}
+	field="ref_id"
+	label={m.refId()}
+	cacheLock={cacheLocks['ref_id']}
+	bind:cachedValue={formDataCache['ref_id']}
+/>
 
 <AutocompleteSelect
 	{form}
@@ -38,7 +46,7 @@
 	cacheLock={cacheLocks['version']}
 	bind:cachedValue={formDataCache['version']}
 />
-{#if !riskAssessmentDuplication}
+{#if !duplicate}
 	<Select
 		{form}
 		options={model.selectOptions['status']}
@@ -57,6 +65,7 @@
 		bind:cachedValue={formDataCache['risk_matrix']}
 		label={m.riskMatrix()}
 		helpText={m.riskAssessmentMatrixHelpText()}
+		hidden={initialData.risk_matrix}
 	/>
 	<AutocompleteSelect
 		{form}
@@ -101,4 +110,15 @@
 		cacheLock={cacheLocks['observation']}
 		bind:cachedValue={formDataCache['observation']}
 	/>
+	{#if initialData.ebios_rm_study}
+		<AutocompleteSelect
+			{form}
+			field="ebios_rm_study"
+			cacheLock={cacheLocks['ebios_rm_study']}
+			bind:cachedValue={formDataCache['ebios_rm_study']}
+			label={m.ebiosRmStudy()}
+			options={getOptions({ objects: model.foreignKeys['ebios_rm_study'] })}
+			hidden
+		/>
+	{/if}
 {/if}

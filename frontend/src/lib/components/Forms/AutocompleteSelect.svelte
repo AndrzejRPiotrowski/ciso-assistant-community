@@ -21,6 +21,9 @@
 
 	export let hidden = false;
 	export let translateOptions = true;
+
+	export let allowUserOptions: boolean | 'append' = false;
+
 	export let cacheLock: CacheLock = {
 		promise: new Promise((res) => res(null)),
 		resolve: (x) => x
@@ -55,7 +58,7 @@
 
 	let selectedValues: (string | undefined)[] = [];
 
-	$: selectedValues = selected.map((item) => item.value);
+	$: selectedValues = selected.map((item) => item.value || item.label || item);
 
 	const default_value = nullable ? null : selectedValues[0];
 
@@ -108,27 +111,25 @@
 	{/if}
 	<div class="control overflow-x-clip" data-testid="form-input-{field.replaceAll('_', '-')}">
 		<input type="hidden" name={field} value={$value ? $value : ''} />
-		{#if options.length > 0}
-			<MultiSelect
-				bind:selected
-				{options}
-				{...multiSelectOptions}
-				disabled={disabled || $$restProps.disabled}
-				{...$$restProps}
-				let:option
-			>
-				{#if option.suggested}
-					<span class="text-indigo-600">{option.label}</span>
-					<span class="text-sm text-gray-500"> (suggested)</span>
-				{:else if translateOptions}
-					{safeTranslate(option.label)}
-				{:else}
-					{option.label}
-				{/if}
-			</MultiSelect>
-		{:else}
-			<MultiSelect {options} {...multiSelectOptions} disabled />
-		{/if}
+		<MultiSelect
+			bind:selected
+			{options}
+			{...multiSelectOptions}
+			disabled={disabled || $$restProps.disabled}
+			allowEmpty={true}
+			{...$$restProps}
+			let:option
+			{allowUserOptions}
+		>
+			{#if option.suggested}
+				<span class="text-indigo-600">{option.label}</span>
+				<span class="text-sm text-gray-500"> (suggested)</span>
+			{:else if translateOptions && option.label}
+				{safeTranslate(option.label)}
+			{:else}
+				{option.label || option}
+			{/if}
+		</MultiSelect>
 	</div>
 	{#if helpText}
 		<p class="text-sm text-gray-500">{helpText}</p>

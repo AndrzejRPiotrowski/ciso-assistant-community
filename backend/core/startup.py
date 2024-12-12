@@ -68,6 +68,8 @@ APPROVER_PERMISSIONS_LIST = [
 ]
 
 ANALYST_PERMISSIONS_LIST = [
+    "add_filteringlabel",
+    "view_filteringlabel",
     "add_appliedcontrol",
     "add_asset",
     "add_complianceassessment",
@@ -143,6 +145,8 @@ ANALYST_PERMISSIONS_LIST = [
 ]
 
 DOMAIN_MANAGER_PERMISSIONS_LIST = [
+    "add_filteringlabel",
+    "view_filteringlabel",
     "add_appliedcontrol",
     "add_asset",
     "add_complianceassessment",
@@ -331,13 +335,44 @@ ADMINISTRATOR_PERMISSIONS_LIST = [
     "change_entityassessment",
     "view_entityassessment",
     "delete_entityassessment",
+    "add_filteringlabel",
+    "view_filteringlabel",
+    "change_filteringlabel",
+    "delete_filteringlabel",
+    "add_ebiosrmstudy",
+    "view_ebiosrmstudy",
+    "change_ebiosrmstudy",
+    "delete_ebiosrmstudy",
+    "add_fearedevent",
+    "view_fearedevent",
+    "change_fearedevent",
+    "delete_fearedevent",
+    "add_roto",
+    "view_roto",
+    "change_roto",
+    "delete_roto",
+    "add_stakeholder",
+    "view_stakeholder",
+    "change_stakeholder",
+    "delete_stakeholder",
+    "add_attackpath",
+    "view_attackpath",
+    "change_attackpath",
+    "delete_attackpath",
+    "add_operationalscenario",
+    "view_operationalscenario",
+    "change_operationalscenario",
+    "delete_operationalscenario",
+    "view_qualification",
+    "add_qualification",
+    "change_qualification",
+    "delete_qualification",
 ]
 
 THIRD_PARTY_RESPONDENT_PERMISSIONS_LIST = [
     "view_complianceassessment",
     "view_requirementassessment",
     "change_requirementassessment",
-    "view_requirementnode",
     "view_evidence",
     "add_evidence",
     "change_evidence",
@@ -354,6 +389,7 @@ def startup(sender: AppConfig, **kwargs):
     """
     from django.contrib.auth.models import Permission
 
+    from core.models import Qualification
     from iam.models import Folder, Role, RoleAssignment, User, UserGroup
     from tprm.models import Entity
 
@@ -483,7 +519,14 @@ def startup(sender: AppConfig, **kwargs):
                 email=CISO_ASSISTANT_SUPERUSER_EMAIL, is_superuser=True
             )
         except Exception as e:
-            print(e)  # NOTE: Add this exception in the logger
+            logger.error("Error creating superuser", exc_info=e)
+
+    # Create default Qualifications
+    try:
+        if Qualification.objects.count() == 0:
+            Qualification.create_default_qualifications()
+    except Exception as e:
+        logger.error("Error creating default qualifications", exc_info=e)
 
     call_command("storelibraries")
 

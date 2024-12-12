@@ -13,13 +13,13 @@
 
 	let sidebarOpen = true;
 
-	$: classesSidebarOpen = (open: boolean) => (open ? 'ml-64' : 'ml-7');
+	$: classesSidebarOpen = (open: boolean) => (open ? 'ml-7 lg:ml-64' : 'ml-7');
 
 	$: if (browser) {
 		const fromLogin = getCookie('from_login');
 		if (fromLogin === 'true') {
 			deleteCookie('from_login');
-			fetch('/api/waiting-risk-acceptances').then(async (res) => {
+			fetch('/fe-api/waiting-risk-acceptances').then(async (res) => {
 				const data = await res.json();
 				const number = data.count ?? 0;
 				if (number <= 0) return;

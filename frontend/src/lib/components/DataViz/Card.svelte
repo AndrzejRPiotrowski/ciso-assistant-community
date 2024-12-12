@@ -1,7 +1,7 @@
 <script lang="ts">
 	export let count: string = '0';
 	export let label: string;
-	// export let href: string | undefined = undefined;
+	export let href: string = '#';
 	// export let help: string;
 	export let icon: string;
 	export let section: string;
@@ -10,20 +10,22 @@
 	if (emphasis) {
 		cEmphasis = 'border border-y-0 border-r-0 border-l-2 border-l-violet-600';
 	}
+	export let customClass: string = '';
 </script>
 
-<div
-	class="flex flex-col shadow-lg text-purple-800 p-2 h-28 bg-white hover:bg-violet-50 {cEmphasis}"
+<a
+	{href}
+	class="flex flex-col shadow-lg text-purple-800 p-2 h-28 bg-white hover:bg-violet-50 {cEmphasis} {customClass}"
 >
 	<div class="text-xs">
 		<span><i class={icon}></i></span>
 		<span>{section}</span>
 	</div>
 	<div class="mt-auto">
-		<div class="text-4xl font-bold text-left">{count}</div>
+		<p class="text-4xl font-bold text-left">{count}</p>
 		<div class="text-sm">{label}</div>
 	</div>
-</div>
+</a>
 
 <style>
 	@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');

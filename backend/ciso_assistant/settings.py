@@ -124,7 +124,7 @@ ATTACHMENT_MAX_SIZE_MB = os.environ.get("ATTACHMENT_MAX_SIZE_MB", 10)
 MEDIA_ROOT = LOCAL_STORAGE_DIRECTORY
 MEDIA_URL = ""
 
-PAGINATE_BY = os.environ.get("PAGINATE_BY", default=500)
+PAGINATE_BY = os.environ.get("PAGINATE_BY", default=5000)
 
 # Application definition
 
@@ -138,6 +138,7 @@ INSTALLED_APPS = [
     "tailwind",
     "iam",
     "global_settings",
+    "ebios_rm",
     "tprm",
     "core",
     "cal",
@@ -152,6 +153,8 @@ INSTALLED_APPS = [
     "allauth.headless",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.saml",
+    "allauth.mfa",
+    # "huey.contrib.djhuey",
 ]
 
 MIDDLEWARE = [
@@ -222,6 +225,7 @@ REST_KNOX = {
     "AUTO_REFRESH": AUTH_TOKEN_AUTO_REFRESH,
     "MIN_REFRESH_INTERVAL": 60,
 }
+
 
 # Empty outside of debug mode so that allauth middleware does not raise an error
 STATIC_URL = ""
@@ -302,13 +306,15 @@ LANGUAGES = [
     ("es", "Spanish"),
     ("de", "German"),
     ("it", "Italian"),
-    ("nd", "Dutch"),
+    ("nl", "Dutch"),
     ("pl", "Polish"),
     ("pt", "Portuguese"),
     ("ar", "Arabic"),
     ("ro", "Romanian"),
     ("hi", "Hindi"),
     ("ur", "Urdu"),
+    ("cz", "Czech"),
+    ("sv", "Swedish"),
 ]
 
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -369,12 +375,26 @@ SPECTACULAR_SETTINGS = {
     # OTHER SETTINGS
 }
 
+HUEY = {
+    "huey_class": "huey.SqliteHuey",  # Huey implementation to use.
+    "name": "huey-ciso-assistant",  # Use db name for huey.
+    "results": True,  # Store return values of tasks.
+    "store_none": False,  # If a task returns None, do not save to results.
+    "immediate": DEBUG,  # If DEBUG=True, run synchronously.
+    "utc": True,  # Use UTC for all times internally.
+    "filename": "db/huey.sqlite3",
+}
+
 # SSO with allauth
 
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_AUTHENTICATION_METHOD = "email"
+
+# NOTE: The reauthentication flow has not been implemented in the frontend yet, hence the long timeout.
+# It is used to reauthenticate the user when they are performing sensitive operations. E.g. enabling/disabling MFA.
+ACCOUNT_REAUTHENTICATION_TIMEOUT = 24 * 60 * 60  # 24 hours
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -385,6 +405,8 @@ SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 
 HEADLESS_ONLY = True
+
+HEADLESS_TOKEN_STRATEGY = "iam.utils.KnoxTokenStrategy"
 
 HEADLESS_FRONTEND_URLS = {
     "socialaccount_login_error": CISO_ASSISTANT_URL + "/login",

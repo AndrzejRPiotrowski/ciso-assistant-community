@@ -43,18 +43,24 @@ Our vision is to provide a one stop shop for cyber security posture management a
 
 CyberSecurity teams need to use GRC as a foundation to structure their program and implement the right tools and processes to mitigate the risks, and leave the rest to CISO Assistant 🐙
 
-The vision of the tool is based on this model:
+The vision of the tool is based on these fundamental objects:
 
-![](posture.png)
+![](core_objects.png)
 
-The full details are available in the [data model](documentation/architecture/data-model.md).
+There are other concepts and models to provide other features. The full details are available in the [data model](documentation/architecture/data-model.md).
 
-The decoupling allows you to save a considerable amount of time:
+The decoupling concept is a pillar of the app and allows you to save a considerable amount of time:
 
 - reuse previous assessments,
 - assess a scope against multiple frameworks at the same time,
 - leave the reporting formatting and sanity check to CISO assistant and focus on your fixes,
 - balance controls implementation and compliance follow-up
+
+Here is an illustration of the **decoupling** principle and its advantages:
+
+https://github.com/user-attachments/assets/87bd4497-5cc2-4221-aeff-396f6b6ebe62
+
+## Features
 
 Here is an overview of CISO Assistant features and capabilities:
 
@@ -164,7 +170,7 @@ Check out the online documentation on <https://intuitem.gitbook.io/ciso-assistan
 61. ECB Cyber resilience oversight expectations for financial market infrastructures 🇪🇺
 62. Mindeststandard-des-BSI-zur-Nutzung-externer-Cloud-Dienste (Version 2.1) 🇩🇪
 63. Formulaire d'évaluation de la maturité - niveau fondamental (DGA) 🇫🇷
-64. Annex to the Implementing Regulation of NIS 2 on Technical and methodological requirements 🇪🇺
+64. NIS2 technical and methodological requirements 2024/2690 🇪🇺
 
 ### Community contributions
 
@@ -176,6 +182,9 @@ Check out the online documentation on <https://intuitem.gitbook.io/ciso-assistan
 6. ANSSI : Recommandations de sécurité relatives à TLS 🇫🇷
 7. New Zealand Information Security Manual (NZISM) 🇳🇿
 8. Clausier de sécurité numérique du Club RSSI Santé 🇫🇷
+9. Référentiel National de Sécurité de l’Information (RNSI), MPT Algérie 🇩🇿
+10. Misure minime di sicurezza ICT per le pubbliche amministrazioni, AGID Italia 🇮🇹
+11. Framework Nazionale CyberSecurity v2, FNCS Italia 🇮🇹
 
 <br/>
 
@@ -196,7 +205,7 @@ Checkout the [library](/backend/library/libraries/) and [tools](/tools/) for the
 
 A library can be a framework, a catalog of threats or reference controls, and even a custom risk matrix.
 
-Take a look at the `tools` directory and its dedicated readme. The `convert_library.py` script will help you create your library from a simple Excel file. Once you have structured your items in that format, just run the script and use the resulting yaml file.
+Take a look at the `tools` directory and its [dedicated README](tools/README.md). The `convert_library.py` script will help you create your library from a simple Excel file. Once you have structured your items in that format, just run the script and use the resulting yaml file.
 
 You can also find some specific converters in the tools directory (e.g. for CIS or CCM Controls).
 
@@ -491,6 +500,14 @@ Set DJANGO_DEBUG=False for security reason.
 - RO: Romanian
 - HI: Hindi
 - UR: Urdu
+- CZ: Czech
+- SV: Swedish
+
+## Contributors 🤝
+
+<a href="https://github.com/intuitem/ciso-assistant-community/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=intuitem/ciso-assistant-community" />
+</a>
 
 ## Built With 💜
 
@@ -517,6 +534,6 @@ All the files within the top-level "enterprise" directory are released under the
 
 All the files outside the top-level "enterprise" directory are released under the [AGPLv3](https://choosealicense.com/licenses/agpl-3.0/).
 
-See [LICENSE.txt](./LICENSE.txt) for details. For more details about the commercial editions, you can reach us on <contact@intuitem.com>.
+See [LICENSE.md](./LICENSE.md) for details. For more details about the commercial editions, you can reach us on <contact@intuitem.com>.
 
 Unless otherwise noted, all files are © intuitem.

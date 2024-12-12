@@ -48,11 +48,16 @@ function getEndpoint({
 	urlModel: string;
 	event: RequestEvent;
 }) {
+	const model = getModelInfo(urlModel);
 	if (action === 'create') {
-		return `${BASE_API_URL}/${urlModel}/`;
+		return model.endpointUrl
+			? `${BASE_API_URL}/${model.endpointUrl}/`
+			: `${BASE_API_URL}/${urlModel}/`;
 	}
 	const id = event.params.id;
-	return `${BASE_API_URL}/${urlModel}/${id}/`;
+	return model.endpointUrl
+		? `${BASE_API_URL}/${model.endpointUrl}/${id}/`
+		: `${BASE_API_URL}/${urlModel}/${id}/`;
 }
 
 export async function handleErrorResponse({
@@ -66,6 +71,9 @@ export async function handleErrorResponse({
 }) {
 	const res: Record<string, string> = await response.json();
 	console.error(res);
+	if (res.label) {
+		res['filtering_labels'] = res.label;
+	}
 	if (res.warning) {
 		setFlash({ type: 'warning', message: res.warning }, event);
 		return { form };
@@ -75,7 +83,7 @@ export async function handleErrorResponse({
 		return { form };
 	}
 	Object.entries(res).forEach(([key, value]) => {
-		setError(form, key, value);
+		setError(form, key, safeTranslate(value));
 	});
 	return fail(400, { form });
 }
@@ -145,13 +153,15 @@ export async function defaultWriteFormAction({
 		}
 	}
 
-	setFlash(
-		{
-			type: 'success',
-			message: getSuccessMessage({ urlModel, action }) as string
-		},
-		event
-	);
+	let flashParams = {
+		type: 'success',
+		message: getSuccessMessage({ urlModel, action }) as string
+	};
+
+	if (urlModel == 'users') {
+		(flashParams.type = 'warning'), (flashParams.message += safeTranslate('userHasNoRights'));
+	}
+	setFlash(flashParams, event);
 
 	const next = getSecureRedirect(event.url.searchParams.get('next'));
 	if (next && doRedirect) redirect(302, next);
@@ -168,6 +178,7 @@ export async function nestedWriteFormAction({
 	redirectToWrittenObject = false
 }: {
 	event: RequestEvent;
+
 	action: FormAction;
 	redirectToWrittenObject: boolean;
 }) {
@@ -193,9 +204,12 @@ export async function defaultDeleteFormAction({
 	const formData = await event.request.formData();
 	const schema = z.object({ id: z.string().uuid() });
 	const deleteForm = await superValidate(formData, zod(schema));
+	const model = getModelInfo(urlModel);
 
 	const id = deleteForm.data.id;
-	const endpoint = `${BASE_API_URL}/${urlModel}/${id}/`;
+	const endpoint = model.endpointUrl
+		? `${BASE_API_URL}/${model.endpointUrl}/${id}/`
+		: `${BASE_API_URL}/${model.urlModel}/${id}/`;
 
 	if (!deleteForm.valid) {
 		console.error(deleteForm.errors);

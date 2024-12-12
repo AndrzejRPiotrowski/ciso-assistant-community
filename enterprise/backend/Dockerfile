@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Based on https://docs.docker.com/samples/django/
 
-FROM python:3.11-alpine
+FROM python:3.12-alpine
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
@@ -20,7 +20,7 @@ RUN apk add --no-cache bash yaml-cpp
 RUN apk add --no-cache py3-cffi libc-dev libffi-dev gcc python3-dev glib pango cairo
 RUN apk add --no-cache musl musl-utils musl-locales tzdata lang
 RUN apk add --no-cache gettext fontconfig ttf-freefont font-noto terminus-font
-RUN apk add --no-cache file-dev gcc
+RUN apk add --no-cache file-dev gcc g++ zlib-dev make python3-dev py3-numpy jpeg-dev
 
 COPY backend /code/
 COPY enterprise/backend/enterprise_core /code/enterprise_core
@@ -29,7 +29,7 @@ COPY backend/pyproject.toml /code/
 COPY backend/poetry.lock /code/
 
 RUN pip install --upgrade pip && \
-    pip install poetry==1.8.3
+    pip install poetry==1.8.5
 
 RUN poetry install
 RUN rm -rf $POETRY_CACHE_DIR

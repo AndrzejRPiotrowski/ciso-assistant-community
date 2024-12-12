@@ -2,8 +2,9 @@
 Inspired from Azure IAM model"""
 
 from collections import defaultdict
-from typing import Any, List, Self, Tuple
+from typing import Any, List, Self, Tuple, Generator
 import uuid
+from allauth.account.models import EmailAddress
 from django.utils import timezone
 from django.db import models
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
@@ -37,6 +38,7 @@ from ciso_assistant.settings import (
 )
 
 import structlog
+from django.utils import translation
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +81,7 @@ class Folder(NameDescriptionMixin):
     content_type = models.CharField(
         max_length=2, choices=ContentType.choices, default=ContentType.DOMAIN
     )
+
     parent_folder = models.ForeignKey(
         "self",
         null=True,
@@ -99,24 +102,22 @@ class Folder(NameDescriptionMixin):
     def __str__(self) -> str:
         return self.name.__str__()
 
-    def sub_folders(self) -> List[Self]:
+    def get_sub_folders(self) -> Generator[Self, None, None]:
         """Return the list of subfolders"""
 
-        def sub_folders_in(f, sub_folder_list):
-            for sub_folder in f.folder_set.all():
-                sub_folder_list.append(sub_folder)
-                sub_folders_in(sub_folder, sub_folder_list)
-            return sub_folder_list
+        def sub_folders_in(folder):
+            for sub_folder in folder.folder_set.all():
+                yield sub_folder
+                yield from sub_folders_in(sub_folder)
 
-        return sub_folders_in(self, [])
+        yield from sub_folders_in(self)
 
-    def get_parent_folders(self) -> List[Self]:
+    # Should we update data-model.md now that this method is a generator ?
+    def get_parent_folders(self) -> Generator[Self, None, None]:
         """Return the list of parent folders"""
-        return (
-            [self.parent_folder] + Folder.get_parent_folders(self.parent_folder)
-            if self.parent_folder
-            else []
-        )
+        current_folder = self
+        while (current_folder := current_folder.parent_folder) is not None:
+            yield current_folder
 
     @staticmethod
     def _navigate_structure(start, path):
@@ -274,6 +275,16 @@ class UserManager(BaseUserManager):
         user.save(using=self._db)
         if initial_group:
             initial_group.user_set.add(user)
+
+        # create an EmailAddress object for the newly created user
+        # this is required by allauth
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            verified=True,
+            primary=True,
+        )
+
         logger.info("user created sucessfully", user=user)
 
         if mailing:
@@ -331,6 +342,7 @@ class User(AbstractBaseUser, AbstractBaseModel, FolderMixin):
     first_name = models.CharField(_("first name"), max_length=150, blank=True)
     email = models.CharField(max_length=100, unique=True)
     first_login = models.BooleanField(default=True)
+    preferences = models.JSONField(default=dict)
     is_sso = models.BooleanField(default=False)
     is_third_party = models.BooleanField(default=False)
     is_active = models.BooleanField(
@@ -525,7 +537,11 @@ class User(AbstractBaseUser, AbstractBaseModel, FolderMixin):
 
     @classmethod
     def get_editors(cls) -> List[Self]:
-        return [user for user in cls.objects.all() if user.is_editor]
+        return [
+            user
+            for user in cls.objects.all()
+            if user.is_editor and not user.is_third_party
+        ]
 
 
 class Role(NameDescriptionMixin, FolderMixin):
@@ -580,7 +596,12 @@ class RoleAssignment(NameDescriptionMixin, FolderMixin):
         """
         Determines if a user has specified permission on a specified folder
         """
+        add_tag_permission = Permission.objects.get(codename="add_filteringlabel")
         for ra in RoleAssignment.get_role_assignments(user):
+            if (
+                (perm == add_tag_permission) and perm in ra.role.permissions.all()
+            ):  # Allow any user to add tags if he has the permission
+                return True
             f = folder
             while f is not None:
                 if (
@@ -635,11 +656,11 @@ class RoleAssignment(NameDescriptionMixin, FolderMixin):
         ]:
             for f in ra.perimeter_folders.all():
                 folders_set.add(f)
-                folders_set.update(f.sub_folders())
+                folders_set.update(f.get_sub_folders())
         # calculate perimeter
         perimeter = set()
         perimeter.add(folder)
-        perimeter.update(folder.sub_folders())
+        perimeter.update(folder.get_sub_folders())
         # return filtered result
         return [
             x.id
@@ -676,7 +697,7 @@ class RoleAssignment(NameDescriptionMixin, FolderMixin):
         folder_for_object = {x: Folder.get_folder(x) for x in all_objects}
         perimeter = set()
         perimeter.add(folder)
-        perimeter.update(folder.sub_folders())
+        perimeter.update(folder.get_sub_folders())
         for ra in [
             x
             for x in RoleAssignment.get_role_assignments(user)
@@ -685,7 +706,7 @@ class RoleAssignment(NameDescriptionMixin, FolderMixin):
             ra_permissions = ra.role.permissions.all()
             for my_folder in perimeter & set(ra.perimeter_folders.all()):
                 target_folders = (
-                    [my_folder] + my_folder.sub_folders()
+                    [my_folder, *my_folder.get_sub_folders()]
                     if ra.is_recursive
                     else [my_folder]
                 )

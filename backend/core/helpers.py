@@ -3,6 +3,7 @@ from collections.abc import MutableMapping
 from datetime import date, timedelta
 from typing import Optional
 
+# from icecream import ic
 from django.core.exceptions import NON_FIELD_ERRORS as DJ_NON_FIELD_ERRORS
 from django.core.exceptions import ValidationError as DjValidationError
 from django.db.models import Count
@@ -13,6 +14,9 @@ from rest_framework.views import exception_handler as drf_exception_handler
 
 from iam.models import Folder, Permission, RoleAssignment, User
 from library.helpers import get_referential_translation
+
+from statistics import mean
+import math
 
 from .models import *
 from .utils import camel_case
@@ -842,6 +846,20 @@ def build_audits_tree_metrics(user):
     return tree
 
 
+def build_audits_stats(user):
+    (object_ids, _, _) = RoleAssignment.get_accessible_object_ids(
+        Folder.get_root_folder(), user, ComplianceAssessment
+    )
+    data = list()
+    names = list()
+    uuids = dict()
+    for audit in ComplianceAssessment.objects.filter(id__in=object_ids):
+        data.append([rs[0] for rs in audit.get_requirements_result_count()])
+        names.append(audit.name)
+        uuids[audit.name] = audit.id
+    return {"data": data, "names": names, "uuids": uuids}
+
+
 def csf_functions(user):
     (object_ids, _, _) = RoleAssignment.get_accessible_object_ids(
         Folder.get_root_folder(), user, AppliedControl
@@ -874,6 +892,13 @@ def get_metrics(user: User):
 
     viewable_controls = viewable_items(AppliedControl)
     controls_count = viewable_controls.count()
+    progress_avg = math.ceil(
+        mean([x.progress() for x in viewable_items(ComplianceAssessment)] or [0])
+    )
+    missed_eta_count = viewable_controls.filter(
+        eta__lt=date.today(),
+    ).count()
+
     data = {
         "controls": {
             "total": controls_count,
@@ -882,6 +907,8 @@ def get_metrics(user: User):
             "on_hold": viewable_controls.filter(status="on_hold").count(),
             "active": viewable_controls.filter(status="active").count(),
             "deprecated": viewable_controls.filter(status="deprecated").count(),
+            "p1": viewable_controls.filter(priority=1).exclude(status="active").count(),
+            "eta_missed": missed_eta_count,
         },
         "risk": {
             "assessments": viewable_items(RiskAssessment).count(),
@@ -893,19 +920,21 @@ def get_metrics(user: User):
             "acceptances": viewable_items(RiskAcceptance).count(),
         },
         "compliance": {
+            "used_frameworks": viewable_items(ComplianceAssessment)
+            .values("framework_id")
+            .distinct()
+            .count(),
             "audits": viewable_items(ComplianceAssessment).count(),
             "active_audits": viewable_items(ComplianceAssessment)
             .filter(status__in=["in_progress", "in_review", "done"])
             .count(),
             "evidences": viewable_items(Evidence).count(),
-            "compliant_items": viewable_items(RequirementAssessment)
-            .filter(result="compliant")
-            .count(),
             "non_compliant_items": viewable_items(RequirementAssessment)
             .filter(result="non_compliant")
             .count(),
+            "progress_avg": progress_avg,
         },
-        "audits_tree": build_audits_tree_metrics(user),
+        "audits_stats": build_audits_stats(user),
         "csf_functions": csf_functions(user),
     }
     return data
@@ -1020,9 +1049,9 @@ def build_scenario_clusters(risk_assessment: RiskAssessment):
         "created_at"
     ):
         if ri.current_level >= 0:
-            risk_matrix_current[ri.current_proba][ri.current_impact].add(ri.rid)
+            risk_matrix_current[ri.current_proba][ri.current_impact].add(ri.ref_id)
         if ri.residual_level >= 0:
-            risk_matrix_residual[ri.residual_proba][ri.residual_impact].add(ri.rid)
+            risk_matrix_residual[ri.residual_proba][ri.residual_impact].add(ri.ref_id)
 
     return {"current": risk_matrix_current, "residual": risk_matrix_residual}
 
@@ -1248,8 +1277,8 @@ def duplicate_related_objects(
     model_class = getattr(type(source_object), field_name).field.related_model
 
     # Get parent and sub-folders of the target folder
-    target_parent_folders = target_folder.get_parent_folders()
-    sub_folders = target_folder.sub_folders()
+    target_parent_folders = list(target_folder.get_parent_folders())
+    sub_folders = list(target_folder.get_sub_folders())
 
     # Get all related objects for the specified field
     related_objects = getattr(source_object, field_name).all()

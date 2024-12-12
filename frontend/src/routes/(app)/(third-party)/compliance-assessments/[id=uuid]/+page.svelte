@@ -204,7 +204,7 @@
 <div class="flex flex-col space-y-4 whitespace-pre-line">
 	<div class="card px-6 py-4 bg-white flex flex-row justify-between shadow-lg w-full">
 		<div class="flex flex-col space-y-2 whitespace-pre-line w-1/5 pr-1">
-			{#each Object.entries(data.compliance_assessment).filter( ([key, _]) => ['name', 'description', 'project', 'framework', 'authors', 'reviewers', 'status', 'selected_implementation_groups'].includes(key) ) as [key, value]}
+			{#each Object.entries(data.compliance_assessment).filter( ([key, _]) => ['ref_id', 'name', 'description', 'project', 'framework', 'authors', 'reviewers', 'status', 'selected_implementation_groups'].includes(key) ) as [key, value]}
 				<div class="flex flex-col">
 					<div
 						class="text-sm font-medium text-gray-800 capitalize-first"
@@ -317,6 +317,10 @@
 						<a
 							href="/compliance-assessments/{data.compliance_assessment.id}/export/csv"
 							class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-200">... {m.asCSV()}</a
+						>
+						<a
+							href="/compliance-assessments/{data.compliance_assessment.id}/export/word"
+							class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-200">... {m.asWord()}</a
 						>
 					{/if}
 					<a

@@ -20,6 +20,14 @@
 	let suggestions = false;
 </script>
 
+<TextField
+	{form}
+	field="ref_id"
+	label={m.refId()}
+	cacheLock={cacheLocks['ref_id']}
+	bind:cachedValue={formDataCache['ref_id']}
+/>
+
 {#if context === 'fromBaseline' && initialData.baseline}
 	<AutocompleteSelect
 		{form}
@@ -28,6 +36,18 @@
 		bind:cachedValue={formDataCache['baseline']}
 		label={m.baseline()}
 		options={getOptions({ objects: model.foreignKeys['baseline'] })}
+	/>
+{/if}
+{#if initialData.ebios_rm_studies}
+	<AutocompleteSelect
+		{form}
+		field="ebios_rm_studies"
+		multiple
+		cacheLock={cacheLocks['ebios_rm_studies']}
+		bind:cachedValue={formDataCache['ebios_rm_studies']}
+		label={m.ebiosRmStudies()}
+		options={getOptions({ objects: model.foreignKeys['ebios_rm_studies'] })}
+		hidden
 	/>
 {/if}
 <AutocompleteSelect

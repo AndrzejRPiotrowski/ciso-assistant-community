@@ -20,7 +20,9 @@
 		polish: m.polish(),
 		romanian: m.romanian(),
 		hindi: m.hindi(),
-		urdu: m.urdu()
+		urdu: m.urdu(),
+		czech: m.czech(),
+		swedish: m.swedish()
 	};
 
 	const modalStore = getModalStore();
@@ -37,7 +39,9 @@
 		pl: 'Polski',
 		ro: 'Română',
 		hi: 'हिंदी',
-		ur: 'اردو'
+		ur: 'اردو',
+		cz: 'Český',
+		sv: 'Svenska'
 	};
 
 	let value = languageTag();
@@ -46,6 +50,12 @@
 		event.preventDefault();
 		value = event?.target?.value;
 		setLanguageTag(value);
+		fetch('/api/user-preferences', {
+			method: 'PATCH',
+			body: JSON.stringify({
+				lang: value
+			})
+		});
 		// sessionStorage.setItem('lang', value);
 		setCookie('ciso_lang', value);
 		window.location.reload();
@@ -58,7 +68,7 @@
 	};
 
 	async function modalBuildInfo() {
-		const res = await fetch('/api/build').then((res) => res.json());
+		const res = await fetch('/fe-api/build').then((res) => res.json());
 		const modal: ModalSettings = {
 			type: 'component',
 			component: 'displayJSONModal',
