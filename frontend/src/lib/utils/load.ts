@@ -43,7 +43,7 @@ export const loadDetail = async ({ event, model, id }) => {
 		const initialData = {};
 		await Promise.all(
 			model.reverseForeignKeyFields.map(async (e) => {
-				const relEndpoint = `${BASE_API_URL}/${e.urlModel}/?${e.field}=${event.params.id}`;
+				const relEndpoint = `${BASE_API_URL}/${e.endpointUrl || e.urlModel}/?${e.field}=${event.params.id}`;
 				const res = await event.fetch(relEndpoint);
 				const revData = await res.json().then((res) => res.results);
 
@@ -87,7 +87,10 @@ export const loadDetail = async ({ event, model, id }) => {
 
 				if (info.foreignKeyFields) {
 					for (const keyField of info.foreignKeyFields) {
-						const queryParams = keyField.urlParams ? `?${keyField.urlParams}` : '';
+						let queryParams = keyField.urlParams ? `?${keyField.urlParams}` : '';
+						if (keyField.detail === true) {
+							queryParams += `${data.ebios_rm_study.id}`; // used only for ebios for now
+						}
 						const url = `${BASE_API_URL}/${keyField.endpointUrl || keyField.urlModel}/${queryParams}`;
 						const response = await event.fetch(url);
 						if (response.ok) {
@@ -103,7 +106,7 @@ export const loadDetail = async ({ event, model, id }) => {
 				if (info.selectFields) {
 					await Promise.all(
 						info.selectFields.map(async (selectField) => {
-							const url = `${BASE_API_URL}/${urlModel}/${selectField.field}/`;
+							const url = `${BASE_API_URL}/${e.endpointUrl || e.urlModel}/${selectField.field}/`;
 							const response = await event.fetch(url);
 							if (response.ok) {
 								selectOptions[selectField.field] = await response.json().then((data) =>
@@ -134,6 +137,7 @@ export const loadDetail = async ({ event, model, id }) => {
 	}
 	return {
 		data,
+		title: data.str || data.name || data.email || data.id,
 		form,
 		relatedModels,
 		urlModel: model.urlModel as urlModel,

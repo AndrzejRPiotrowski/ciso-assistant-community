@@ -171,6 +171,12 @@ Check out the online documentation on <https://intuitem.gitbook.io/ciso-assistan
 62. Mindeststandard-des-BSI-zur-Nutzung-externer-Cloud-Dienste (Version 2.1) 🇩🇪
 63. Formulaire d'évaluation de la maturité - niveau fondamental (DGA) 🇫🇷
 64. NIS2 technical and methodological requirements 2024/2690 🇪🇺
+65. Saudi Arabian Monetary Authority (SAMA) Cybersecurity Framework 🇸🇦 
+66. Guide de sécurité des données (CNIL) 🇫🇷
+67. International Traffic in Arms Regulations (ITAR) 🇺🇸
+68. Federal Trade Commission (FTC) Standards for Safeguarding Customer Information 🇺🇸
+69. OWASP's checklist for LLM governance and security 🌐
+70. Recommandations pour les architectures des systèmes d’information sensibles ou à diffusion restreinte (ANSSI) 🇫🇷
 
 ### Community contributions
 
@@ -197,7 +203,13 @@ Checkout the [library](/backend/library/libraries/) and [tools](/tools/) for the
 
 ### Coming soon
 
+- Indonesia PDP 🇮🇩
+- COBAC R-2024/01
+- ICO Data protection self-assessment 🇬🇧
 - NIST 800-82
+- ASD ISM 🇦🇺
+- Baseline informatiebeveiliging Overheid (BIO) 🇳🇱
+
 
 - and much more: just ask on [Discord](https://discord.gg/qvkaMdQ8da). If it's an open standard, we'll do it for you, _free of charge_ 😉
 
@@ -500,8 +512,9 @@ Set DJANGO_DEBUG=False for security reason.
 - RO: Romanian
 - HI: Hindi
 - UR: Urdu
-- CZ: Czech
+- CS: Czech
 - SV: Swedish
+- ID: Indonesian
 
 ## Contributors 🤝
 
@@ -537,3 +550,7 @@ All the files outside the top-level "enterprise" directory are released under th
 See [LICENSE.md](./LICENSE.md) for details. For more details about the commercial editions, you can reach us on <contact@intuitem.com>.
 
 Unless otherwise noted, all files are © intuitem.
+
+## Activity 
+
+![Alt](https://repobeats.axiom.co/api/embed/83162c6044da29efd7efa28f746b6bee5a3c6a8a.svg "Repobeats analytics image")

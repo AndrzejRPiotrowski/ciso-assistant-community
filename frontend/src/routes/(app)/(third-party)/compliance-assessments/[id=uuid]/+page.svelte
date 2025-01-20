@@ -1,26 +1,27 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import RecursiveTreeView from '$lib/components/TreeView/RecursiveTreeView.svelte';
-	import { breadcrumbObject } from '$lib/utils/stores';
 	import { displayOnlyAssessableNodes } from './store';
+
+	import { onMount } from 'svelte';
 
 	import type {
 		ModalComponent,
 		ModalSettings,
 		ModalStore,
 		PopupSettings,
-		ToastStore,
 		TreeViewNode
 	} from '@skeletonlabs/skeleton';
 
-	import { getSecureRedirect } from '$lib/utils/helpers';
 	import { goto } from '$app/navigation';
+	import { getSecureRedirect } from '$lib/utils/helpers';
 
-	import { getModalStore, getToastStore, popup, SlideToggle } from '@skeletonlabs/skeleton';
+	import { getModalStore, popup, SlideToggle } from '@skeletonlabs/skeleton';
 	import type { ActionData, PageData } from './$types';
 	import TreeViewItemContent from './TreeViewItemContent.svelte';
 	import TreeViewItemLead from './TreeViewItemLead.svelte';
 
+	import Anchor from '$lib/components/Anchor/Anchor.svelte';
 	import CreateModal from '$lib/components/Modals/CreateModal.svelte';
 
 	import { complianceResultColorMap, complianceStatusColorMap } from '$lib/utils/constants';
@@ -35,13 +36,13 @@
 	export let data: PageData;
 	export let form: ActionData;
 
+	import List from '$lib/components/List/List.svelte';
 	import ConfirmModal from '$lib/components/Modals/ConfirmModal.svelte';
 	import { displayScoreColor } from '$lib/utils/helpers';
 	import { expandedNodesState } from '$lib/utils/stores';
 	import { ProgressRadial } from '@skeletonlabs/skeleton';
-	import List from '$lib/components/List/List.svelte';
+	import { nodeIsDragged } from '@unovis/ts/components/graph/modules/node/style';
 
-	$: breadcrumbObject.set(data.compliance_assessment);
 	$: tree = data.tree;
 
 	$: compliance_assessment_donut_values = data.compliance_assessment_donut_values;
@@ -55,6 +56,29 @@
 		`change_${requirementAssessmentModel.name}`
 	);
 
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.metaKey || event.ctrlKey) return;
+		if (document.activeElement?.tagName !== 'BODY') return; // otherwise it will interfere with input fields
+		if (event.key === 'f') {
+			event.preventDefault();
+			goto(`${$page.url.pathname}/flash-mode`);
+		}
+		if (event.key === 't') {
+			event.preventDefault();
+			goto(`${$page.url.pathname}/table-mode`);
+		}
+	}
+
+	onMount(() => {
+		// Add event listener to the document
+		document.addEventListener('keydown', handleKeydown);
+
+		// Cleanup function to remove event listener
+		return () => {
+			document.removeEventListener('keydown', handleKeydown);
+		};
+	});
+
 	const countResults = (
 		node: Node,
 		resultCounts: Record<string, number> = {}
@@ -67,7 +91,10 @@
 		}
 		if (node.is_scored && node.assessable && node.result !== 'not_applicable') {
 			resultCounts['scored'] = (resultCounts['scored'] || 0) + 1;
-			resultCounts['total_score'] = (resultCounts['total_score'] || 0) + node.score;
+			const nodeMeanScore = data.compliance_assessment.show_documentation_score
+				? (node.score + node.documentation_score) / 2
+				: node.score;
+			resultCounts['total_score'] = (resultCounts['total_score'] || 0) + nodeMeanScore;
 		}
 
 		if (node.children && Object.keys(node.children).length > 0) {
@@ -82,7 +109,6 @@
 	};
 
 	function transformToTreeView(nodes: Node[]) {
-		if (!tree) return [];
 		return nodes.map(([id, node]) => {
 			node.resultCounts = countResults(node);
 			const hasAssessableChildren = Object.keys(node.children || {}).length > 0;
@@ -104,7 +130,9 @@
 					statusColor: complianceStatusColorMap[node.status],
 					resultColor: complianceResultColorMap[node.result],
 					score: node.score,
+					documentationScore: node.documentation_score,
 					isScored: node.is_scored,
+					showDocumentationScore: data.compliance_assessment.show_documentation_score,
 					max_score: node.max_score
 				},
 				children: node.children ? transformToTreeView(Object.entries(node.children)) : []
@@ -229,7 +257,7 @@
 														)?.urlModel
 													}/${val.id}`}
 													{#if !$page.data.user.is_third_party}
-														<a href={itemHref} class="anchor">{val.str}</a>
+														<Anchor href={itemHref} class="anchor">{val.str}</Anchor>
 													{:else}
 														{val.str}
 													{/if}
@@ -246,7 +274,7 @@
 										)?.urlModel
 									}/${value.id}`}
 									{#if !$page.data.user.is_third_party}
-										<a href={itemHref} class="anchor">{value.str}</a>
+										<Anchor href={itemHref} class="anchor">{value.str}</Anchor>
 									{:else}
 										{value.str}
 									{/if}
@@ -336,30 +364,36 @@
 					{/if}
 				</div>
 				{#if canEditObject}
-					<a
+					<Anchor
+						breadcrumbAction="push"
 						href={`${$page.url.pathname}/edit?next=${$page.url.pathname}`}
 						class="btn variant-filled-primary h-fit"
-						data-testid="edit-button"><i class="fa-solid fa-pen-to-square mr-2" /> {m.edit()}</a
+						data-testid="edit-button"
+						><i class="fa-solid fa-pen-to-square mr-2" /> {m.edit()}</Anchor
 					>
 				{/if}
 			</div>
 			{#if !$page.data.user.is_third_party}
-				<a href={`${$page.url.pathname}/action-plan`} class="btn variant-filled-primary h-fit"
-					><i class="fa-solid fa-heart-pulse mr-2" />{m.actionPlan()}</a
+				<Anchor
+					href={`${$page.url.pathname}/action-plan`}
+					class="btn variant-filled-primary h-fit"
+					breadcrumbAction="push"><i class="fa-solid fa-heart-pulse mr-2" />{m.actionPlan()}</Anchor
 				>
 			{/if}
-			<span class="pt-4 font-light text-sm">Power-ups:</span>
+			<span class="pt-4 font-light text-sm">{m.powerUps()}</span>
 			{#if !$page.data.user.is_third_party}
-				<a
+				<Anchor
+					breadcrumbAction="push"
 					href={`${$page.url.pathname}/flash-mode`}
 					class="btn text-gray-100 bg-gradient-to-l from-sky-500 to-violet-500 h-fit"
-					><i class="fa-solid fa-bolt mr-2" /> {m.flashMode()}</a
+					><i class="fa-solid fa-bolt mr-2" /> {m.flashMode()}</Anchor
 				>
 			{/if}
-			<a
+			<Anchor
+				breadcrumbAction="push"
 				href={`${$page.url.pathname}/table-mode`}
 				class="btn text-gray-100 bg-gradient-to-l from-sky-500 to-yellow-500 h-fit"
-				><i class="fa-solid fa-table-list mr-2" /> {m.tableMode()}</a
+				><i class="fa-solid fa-table-list mr-2" /> {m.tableMode()}</Anchor
 			>
 			{#if !$page.data.user.is_third_party}
 				<button
